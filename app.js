@@ -341,17 +341,32 @@ function renderGrid(ch) {
       h("div", { class: "legend", "aria-hidden": "true" }, "None", h("span", { class: "cell l1" }), h("span", { class: "cell l2" }), h("span", { class: "cell l3" }), h("span", { class: "cell l4" }), "All")));
 }
 
+function boardPost(ch, r, live) {
+  return h("article", { class: "post" + (live ? " live" : "") },
+    h("h3", {}, h("span", {}, fmtDay(r.date), live ? h("span", { class: "live-chip" }, "Live") : null),
+      h("small", {}, live ? `Locks ${fmtDay(L.addDays(r.date, 1), { weekday: "short" })} noon` : `Day ${L.dayNumber(ch, r.date)}`)),
+    h("ol", {}, (r.rows || []).map((row, i) => h("li", { class: i === 0 && row.pct > 0 ? "top" : null },
+      h("span", { class: "rank" }, String(i + 1)),
+      h("div", {}, h("span", { class: "nm" }, row.name), row.perfect ? h("span", { class: "badge" }, "Perfect") : null, h("div", { class: "bar" }, h("i", { style: `width:${row.pct}%` }))),
+      h("span", { class: "pct" }, row.of ? `${row.hit}/${row.of}` : "", row.wkOf ? h("small", { class: "wkn" }, `wk ${row.wkMet}/${row.wkOf}`) : null)))));
+}
+
+// Days still open (today, and yesterday until noon) show live from everyone's ticks; closed days are the posted docs.
 function renderBoard(ch) {
+  const t = today();
   const all = Object.values(state.results || {}).filter((r) => r.challengeId === ch.id).sort((a, b) => (a.date < b.date ? 1 : -1));
+  const posted = new Set(all.map((r) => r.date));
+  const live = [t, L.addDays(t, -1)].filter((d) => L.inChallenge(ch, d) && !L.isFinal(d, now()) && !posted.has(d))
+    .map((d) => L.buildResult(state.players, ch, d, now()));
   const posts = all.slice(0, state.boardAll ? 60 : 3);
-  const head = h("div", { class: "sec-head" }, h("h2", { id: "boardH" }, "Daily Board"), h("span", { class: "note" }, "Posts itself when a day closes at noon"));
-  if (!posts.length) return h("section", { "aria-labelledby": "boardH" }, head, h("p", { class: "empty" }, h("b", {}, "First post lands tomorrow at noon. "), "That's when today's scores lock in."));
-  return h("section", { "aria-labelledby": "boardH" }, head, h("div", { class: "board" }, posts.map((r) =>
-    h("article", { class: "post" }, h("h3", {}, fmtDay(r.date), h("small", {}, `Day ${L.dayNumber(ch, r.date)}`)),
-      h("ol", {}, (r.rows || []).map((row, i) => h("li", { class: i === 0 && row.pct > 0 ? "top" : null },
-        h("span", { class: "rank" }, String(i + 1)),
-        h("div", {}, h("span", { class: "nm" }, row.name), row.perfect ? h("span", { class: "badge" }, "Perfect") : null, h("div", { class: "bar" }, h("i", { style: `width:${row.pct}%` }))),
-        h("span", { class: "pct" }, row.of ? `${row.hit}/${row.of}` : "", row.wkOf ? h("small", { class: "wkn" }, `wk ${row.wkMet}/${row.wkOf}`) : null)))))),
+  const head = h("div", { class: "sec-head" }, h("h2", { id: "boardH" }, "Daily Board"), h("span", { class: "note" }, "Live all day · locks at noon next day"));
+  if (!live.length && !posts.length) {
+    const msg = t < ch.start ? [h("b", {}, `Scores start ${fmtDay(ch.start, { weekday: "long" })}. `), "The board goes live the moment anyone ticks."]
+      : [h("b", {}, "Nothing to show yet. "), "The board fills in as the pack ticks."];
+    return h("section", { "aria-labelledby": "boardH" }, head, h("p", { class: "empty" }, ...msg));
+  }
+  return h("section", { "aria-labelledby": "boardH" }, head, h("div", { class: "board" },
+    live.map((r) => boardPost(ch, r, true)), posts.map((r) => boardPost(ch, r, false)),
     all.length > posts.length ? h("button", { class: "mini-btn more", type: "button", onclick: () => { state.boardAll = true; render(); } }, `Show ${all.length - posts.length} older`) : null));
 }
 

@@ -266,6 +266,11 @@ dialog.sheet[open] { animation: up 300ms var(--ease); }
 .wbar { width: 40px; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--tag-edge) 55%, transparent); overflow: hidden; }
 .wbar i { display: block; height: 100%; background: color-mix(in srgb, var(--hit) 70%, var(--tag-edge)); }
 .wbar.met i { background: var(--hit); }
+.post.live { border: 1.5px solid color-mix(in srgb, var(--blaze) 60%, transparent); }
+.post h3 > span { display: inline-flex; align-items: center; gap: 8px; }
+.live-chip { font: 600 10px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--bg); background: var(--blaze); padding: 4px 6px; border-radius: 6px; }
+.live-chip::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 5px; vertical-align: 1px; animation: blink 1.6s ease-in-out infinite; }
+@keyframes blink { 50% { opacity: 0.3; } }
 .post .wkn { display: block; font: 500 10px/1.2 var(--mono); color: var(--muted); margin-top: 3px; text-align: right; }
 .gitem { align-items: flex-start !important; }
 .gfields { flex: 1; min-width: 0; display: grid; gap: 6px; }
