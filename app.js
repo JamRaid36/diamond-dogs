@@ -1219,7 +1219,8 @@ function openMembers() {
 sheet.addEventListener("close", () => { state._sheetIs = null; });
 
 // ---------- help, rules, invites, home screen ----------
-const appLink = () => location.origin + location.pathname;
+// On the dev preview the invite opens the new-player walkthrough (fake sign-in, sample data), never the real app.
+const appLink = () => location.origin + location.pathname + (window.DD_DEV ? "?demo=invited" : "");
 const phone = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) ? "ios"
   : /Android/.test(navigator.userAgent) ? "android" : "other";
 const standalone = () => window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
@@ -1351,7 +1352,7 @@ function inviteText() {
   const t = L.treasurerOf(c);
   const pay = c?.pot?.buyIn > 0 ? `Buy-in is ${money(c.pot.buyIn)}` + (t ? `, to ${state.players?.[t]?.name || "the treasurer"}${c.pot.payHow ? ` (${c.pot.payHow})` : ""}.` : ".") : null;
   return [
-    "You're in the Alpha Pack \u{1F43A}\u{1F4AA}",
+    window.DD_DEV ? "You're in the Alpha Pack \u{1F43A}\u{1F4AA} (test version: sample players, nothing is saved)" : "You're in the Alpha Pack \u{1F43A}\u{1F4AA}",
     appLink(),
     "Sign in with Google using this email. The app walks you through the rest, even putting it on your home screen.",
     pay,
