@@ -39,7 +39,7 @@ function seed(scenario, now) {
   }
   if (scenario === "pot") ch.pot = { buyIn: 50, strikes: 2, paid: {} }; // riley has missed days: out at 2
   if (scenario === "pardon") ch.pot = { buyIn: 100, strikes: 3, comeback: 50, paid: { me: true } }; // riley asks a pardon, sam voted yes
-  if (scenario === "treasurer" || scenario === "treasurerm") ch.pot = { buyIn: 100, strikes: 3, treasurer: "sam", payHow: "Venmo @sam-t", paid: { sam: true } }; // sam holds the money; you own the app
+  if (scenario === "treasurer" || scenario === "treasurerm") ch.pot = { buyIn: 100, strikes: 3, treasurer: "sam", payHow: "Venmo https://venmo.com/u/sam-t", paid: { sam: true } }; // sam holds the money; you own the app
   if (scenario === "goalcheck" || scenario === "goalcheckm") { // upcoming, everyone sets their own: sam has 3, riley 1, you none
     ch.start = d(2); ch.end = d(23); ch.goals = {}; ch.minGoals = 3;
     const g = (t, i, pw) => ({ text: t, addedOn: d(2), closedOn: null, order: i, perWeek: pw || null });

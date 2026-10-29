@@ -317,6 +317,7 @@ function renderUpcoming(ch) {
   return h("section", { class: "you" },
     h("div", { class: "you-head" }, h("div", { class: "you-title" }, h("h1", {}, ch.name),
       h("p", {}, `Starts ${fmtDay(ch.start, { weekday: "long", month: "short", day: "numeric" })}. Set your own goals before then. They lock when it starts.`))),
+    goals.length ? h("div", { class: "lockline", role: "note" }, `These are your goals. You can tick them from ${fmtDay(ch.start, { weekday: "long" })}. Everyone can see everyone's goals in the Goal check below.`) : null,
     goals.length ? h("ul", { class: "goals" }, goals.map((g) => h("li", {}, h("div", { class: "goal", "aria-disabled": "true" },
       h("span", { class: "box" }), h("span", { class: "goal-text" }, h("strong", {}, g.text), h("small", {}, [g.personal ? "Yours" : "Group goal", L.cadenceLabel(g), !g.personal && me().targets?.[g.id] ? `Your target: ${me().targets[g.id]}` : null].filter(Boolean).join(" · ")))))))
       : h("p", { class: "empty" }, h("b", {}, "You haven't set any goals yet. "), "Anything counts: protein, a workout, read a chapter. With none, every day is a strike."),
@@ -503,6 +504,13 @@ function settleBlock(ch, st) {
     } }, state.confirmSettle === ch.id ? "Tap again to lock the payouts" : "Settle the pot"));
 }
 
+// Only https links become buttons; the text is the owner's, but never trust it as a scheme (no javascript:).
+function payUrl(how) {
+  const m = /https:\/\/[^\s]+/.exec(how || "");
+  if (!m) return null;
+  try { const u = new URL(m[0]); return u.protocol === "https:" ? u.href : null; } catch { return null; }
+}
+
 // Who to pay, for everyone; and the treasurer's checklist right in the pot (they may have no menu powers otherwise).
 function payLine(ch, st) {
   const t = L.treasurerOf(ch);
@@ -514,7 +522,9 @@ function payLine(ch, st) {
   const how = ch.pot?.payHow;
   return h("div", { class: "pay-line" },
     h("p", {}, h("b", {}, isT ? "You're the treasurer. " : `Treasurer: ${name}. `),
-      isT ? "You hold the money and mark who paid below." : mine && !mine.paid ? [`Pay ${money(st.buyIn)} to ${name}`, how ? ` · ${how}` : "", "."] : mine?.paid ? "You're paid up." : ""),
+      isT ? "You hold the money and mark who paid below." : mine && !mine.paid ? [`Pay ${money(st.buyIn)} to ${name}`, how && !payUrl(how) ? ` · ${how}` : "", "."] : mine?.paid ? "You're paid up." : ""),
+    // A link (Venmo, Cash App, PayPal) becomes one tap to pay; anything else stays as text above.
+    payUrl(how) && !isT && mine && !mine.paid ? h("a", { class: "btn blaze pay-btn", href: payUrl(how), target: "_blank", rel: "noopener noreferrer" }, `Pay ${name} ${money(st.buyIn)}`) : null,
     isT && !st.settled ? h("details", { class: "help", open: true }, h("summary", {}, h("span", { class: "help-q", "aria-hidden": "true" }, "$"), "Mark who paid"),
       paidList(ch, Object.keys(state.players || {}).sort((a, b) => (state.players[a].name || "").localeCompare(state.players[b].name || "")))) : null);
 }
