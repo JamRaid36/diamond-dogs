@@ -531,7 +531,8 @@
   function groupScore(players, ch, nowMs) {
     players = players || {};
     if (!ch || !isDate(ch.start) || !isDate(ch.end)) return null;
-    var goals = goalList(ch).filter(function (g) { return !g.personal; });
+    // A goal removed before it ever counted (closedOn <= addedOn) is gone, here as everywhere else.
+    var goals = goalList(ch).filter(function (g) { return !g.personal && !(g.closedOn && g.closedOn <= g.addedOn); });
     if (!goals.length) return null;
     var entrants = Object.keys(players).filter(function (u) { return joinedBy(players[u], ch.end); });
     var today = pacificDate(nowMs);
