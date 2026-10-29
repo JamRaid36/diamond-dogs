@@ -18,7 +18,7 @@ function seed(scenario, now) {
   if (scenario === "empty") return store;
   const ch = {
     name: "Fall Cut", start: scenario === "upcoming" ? d(2) : start, end: scenario === "upcoming" ? d(23) : d(15),
-    createdBy: "me", createdAt: now,
+    createdBy: "me", createdAt: now - 6 * 86400000, // created on its start day: no catch-up window in the demo
     goals: {
       g1: { text: "Hit protein", addedOn: scenario === "upcoming" ? d(2) : start, closedOn: null, order: 1 },
       g2: { text: "Train or walk", addedOn: scenario === "upcoming" ? d(2) : start, closedOn: null, order: 2, perWeek: 5 },
@@ -26,6 +26,7 @@ function seed(scenario, now) {
       g4: { text: "Lights out by 11", addedOn: scenario === "upcoming" ? d(2) : d(-2), closedOn: null, order: 4 },
     },
   };
+  if (scenario === "catchup") { ch.start = d(-2); ch.createdAt = now; Object.values(ch.goals).forEach((g) => { g.addedOn = d(-2); }); }
   store.challenges.c1 = ch;
   const joined = now - 6 * 86400000;
   const pattern = {
@@ -37,7 +38,7 @@ function seed(scenario, now) {
   const targets = { me: { g1: "200 g", g2: "45 min" }, sam: { g1: "180 g", g2: "Lift 3x" }, riley: { g1: "150 g" } };
   for (const uid of Object.keys(pattern)) {
     const days = {};
-    if (scenario !== "upcoming") {
+    if (scenario !== "upcoming" && scenario !== "catchup") {
       pattern[uid].forEach((row, i) => {
         const day = d(-5 + i);
         days[day] = {};
@@ -46,7 +47,7 @@ function seed(scenario, now) {
     }
     store.players[uid] = { name: names[uid], joinedAt: joined, targets: targets[uid], days };
   }
-  if (scenario !== "upcoming") {
+  if (scenario !== "upcoming" && scenario !== "catchup") {
     const chWithId = Object.assign({ id: "c1" }, ch);
     for (let i = -5; i <= -2; i++) store.results[d(i)] = L.buildResult(store.players, chWithId, d(i), now);
   }

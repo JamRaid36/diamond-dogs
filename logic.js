@@ -156,18 +156,50 @@
     return n;
   }
 
-  // The day a player may still tick: today always; yesterday until noon Pacific.
-  function isEditable(date, nowMs) {
+  var MAX_BACKDATE = 7;
+
+  // A challenge created with a start date in the past opens a one-time catch-up: its days before the creation day
+  // stay tickable until noon the day after it was created, then lock like any other day.
+  function catchUpOpen(ch, nowMs) {
+    if (!ch || !ch.createdAt) return false;
+    var created = pacificDate(ch.createdAt);
+    if (!(ch.start < created)) return false;
     var today = pacificDate(nowMs);
-    if (date === today) return true;
-    return date === addDays(today, -1) && pacificHour(nowMs) < FINAL_HOUR;
+    return today === created || (today === addDays(created, 1) && pacificHour(nowMs) < FINAL_HOUR);
   }
 
-  // A date is final (scoreboard can post) from noon Pacific the next day.
-  function isFinal(date, nowMs) {
+  // The instant catch-up closes: noon Pacific the day after creation (DST-safe: try both offsets).
+  function catchUpClosesMs(ch) {
+    var d = addDays(pacificDate(ch.createdAt), 1).split("-").map(Number);
+    for (var off = 7; off <= 8; off++) {
+      var ms = Date.UTC(d[0], d[1] - 1, d[2], FINAL_HOUR + off);
+      if (pacificHour(ms) === FINAL_HOUR) return ms;
+    }
+    return Date.UTC(d[0], d[1] - 1, d[2], FINAL_HOUR + 8);
+  }
+
+  // The day a player may still tick: today always; yesterday until noon Pacific; catch-up days while open.
+  function isEditable(date, nowMs, ch) {
     var today = pacificDate(nowMs);
-    if (date < addDays(today, -1)) return true;
-    return date === addDays(today, -1) && pacificHour(nowMs) >= FINAL_HOUR;
+    if (date === today) return true;
+    if (date === addDays(today, -1) && pacificHour(nowMs) < FINAL_HOUR) return true;
+    return !!ch && date >= ch.start && date < pacificDate(ch.createdAt || 0) && date < today && catchUpOpen(ch, nowMs);
+  }
+
+  // A date is final (the board can post it) once it's in the past and nobody can tick it any more.
+  function isFinal(date, nowMs, ch) {
+    return date < pacificDate(nowMs) && !isEditable(date, nowMs, ch);
+  }
+
+  // Open days in this challenge, newest first: today, yesterday until noon, and catch-up days.
+  function editableDates(ch, nowMs) {
+    var out = [];
+    if (!ch) return out;
+    var today = pacificDate(nowMs);
+    for (var d = today; d >= ch.start && d >= addDays(today, -MAX_BACKDATE - 1); d = addDays(d, -1)) {
+      if (inChallenge(ch, d) && isEditable(d, nowMs, ch)) out.push(d);
+    }
+    return out;
   }
 
   // Dates in this challenge that are final and have no results doc yet. Oldest first, at most `limit`.
@@ -176,7 +208,7 @@
     var have = {};
     (existingDates || []).forEach(function (d) { have[d] = true; });
     var out = [];
-    for (var d = ch.start; d <= ch.end && isFinal(d, nowMs); d = addDays(d, 1)) {
+    for (var d = ch.start; d <= ch.end && isFinal(d, nowMs, ch); d = addDays(d, 1)) {
       if (!have[d]) out.push(d);
     }
     return out.slice(-(limit || 7));
@@ -236,7 +268,7 @@
     }).filter(function (g) { return g.text; });
     if (!name) errors.name = "Give the challenge a name.";
     if (!isDate(input.start)) errors.start = "Pick a start date.";
-    else if (input.start < today) errors.start = "Start today or later.";
+    else if (input.start < addDays(today, -MAX_BACKDATE)) errors.start = "Start no more than a week back.";
     if (!isDate(input.end)) errors.end = "Pick an end date.";
     else if (isDate(input.start) && input.end < input.start) errors.end = "End on or after the start date.";
     else if (isDate(input.start) && daysBetween(input.start, input.end) > 365) errors.end = "Keep it to a year or less.";
@@ -298,7 +330,7 @@
 
   // Patch for one tick. Refuses outside the edit window or for goals not active that day.
   function tickPatch(ch, date, id, done, nowMs) {
-    if (!isEditable(date, nowMs)) return { error: "That day is final." };
+    if (!isEditable(date, nowMs, ch)) return { error: "That day is final." };
     if (!activeGoals(ch, date).some(function (g) { return g.id === id; })) return { error: "That goal doesn't count that day." };
     var day = {};
     day[id] = !!done;
@@ -330,6 +362,7 @@
     pacificDate: pacificDate, pacificHour: pacificHour, addDays: addDays, daysBetween: daysBetween, isDate: isDate,
     inChallenge: inChallenge, goalList: goalList, activeGoals: activeGoals, isLocked: isLocked, isDone: isDone,
     dayScore: dayScore, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
+    catchUpOpen: catchUpOpen, catchUpClosesMs: catchUpClosesMs, editableDates: editableDates, MAX_BACKDATE: MAX_BACKDATE,
     resultsDue: resultsDue, resultId: resultId, buildResult: buildResult, joinedBy: joinedBy,
     currentChallenge: currentChallenge, cleanText: cleanText, validateChallenge: validateChallenge,
     addGoalPatch: addGoalPatch, cadencePatch: cadencePatch, cadenceLabel: cadenceLabel, isWeekly: isWeekly,

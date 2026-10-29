@@ -51,7 +51,8 @@ function me() { return state.players?.[state.user?.uid]; }
 function viewDate() {
   const t = today();
   const y = L.addDays(t, -1);
-  return state.viewDay === "yesterday" && L.isEditable(y, now()) ? y : t;
+  const ch = current();
+  return state.viewDay && state.viewDay !== t && L.editableDates(ch, now()).includes(state.viewDay) ? state.viewDay : t;
 }
 function packOrder(ch, date) {
   const ids = Object.keys(state.players || {}).filter((uid) => L.joinedBy(state.players[uid], date) || uid === state.user.uid);
@@ -189,7 +190,9 @@ function renderYou(ch) {
   const goals = L.dailyGoals(ch, date);
   const weekly = L.weeklyGoals(ch, date);
   const wk = L.weekScore(p, ch, date);
-  const yEditable = L.isEditable(L.addDays(t, -1), now()) && L.inChallenge(ch, L.addDays(t, -1));
+  const openDays = L.editableDates(ch, now());
+  const catchUp = L.catchUpOpen(ch, now());
+  const dayLabel = (d) => d === t ? "Today" : d === L.addDays(t, -1) ? "Yesterday" : fmtDay(d, { weekday: "short" });
   const perfectStreak = L.perfectStreak(p, ch, t);
   const sub = !goals.length ? `${wk.met} of ${wk.of} weekly goals met` :
     score.perfect ? "Perfect day. Every daily goal done." :
@@ -198,11 +201,13 @@ function renderYou(ch) {
   const card = h("section", { class: "you", id: "you", "aria-labelledby": "youTitle" },
     h("div", { class: "perfect", "aria-hidden": "true" }),
     h("div", { class: "you-head" }, ring(goals.length ? score : { hit: wk.met, of: wk.of }),
-      h("div", { class: "you-title" }, h("p", { class: "eyebrow" }, ch.name), h("h1", { id: "youTitle" }, date === t ? "Today" : "Yesterday"),
+      h("div", { class: "you-title" }, h("p", { class: "eyebrow" }, ch.name), h("h1", { id: "youTitle" }, dayLabel(date)),
         h("p", {}, `${fmtDay(date)} · ${sub}`))),
-    yEditable ? h("div", { class: "seg", role: "group", "aria-label": "Which day" },
-      h("button", { type: "button", "aria-pressed": String(date === t), onclick: () => { state.viewDay = "today"; render(); } }, "Today"),
-      h("button", { type: "button", "aria-pressed": String(date !== t), onclick: () => { state.viewDay = "yesterday"; render(); } }, "Yesterday · until noon")) : null,
+    catchUp ? catchUpBanner(ch, p, openDays, t) : null,
+    !catchUp && openDays.length > 1 ? h("div", { class: "seg-wrap" },
+      h("div", { class: "seg", role: "group", "aria-label": "Which day" }, openDays.slice().reverse().map((d) =>
+        h("button", { type: "button", "aria-pressed": String(d === date), onclick: () => { state.viewDay = d; render(); } }, dayLabel(d)))),
+      h("p", { class: "seg-note" }, "Yesterday stays open until noon.")) : null,
     goals.length ? h("ul", { class: "goals" }, goals.map((g) => goalRow(ch, p, g, date, t))) : null,
     weekly.length ? h("div", { class: "wk-head" }, h("span", {}, "This week"), h("small", {}, `${wk.met} of ${wk.of} met · resets Monday`)) : null,
     weekly.length ? h("ul", { class: "goals" }, weekly.map((g) => goalRow(ch, p, g, date, t))) : null,
@@ -211,6 +216,22 @@ function renderYou(ch) {
       h("span", { class: "foot-note" + (perfectStreak >= 3 ? " hot" : "") }, perfectStreak ? `${perfectStreak} perfect day${perfectStreak === 1 ? "" : "s"} in a row` : goals.length ? `Tick all ${goals.length} daily goals for a perfect day` : "Weekly goals only"),
       h("button", { class: "link-btn", type: "button", onclick: openSettings }, "Edit goals")));
   return card;
+}
+
+// Shown to everyone while a backdated challenge's catch-up is open, so nobody has to be told.
+function catchUpBanner(ch, p, openDays, t) {
+  const closes = new Date(L.catchUpClosesMs(ch));
+  const when = closes.toLocaleString("en-US", { weekday: "long", hour: "numeric", minute: "2-digit" }); // viewer's own time zone
+  const days = openDays.slice().reverse(); // oldest first, ending on today
+  const shown = state.viewDay && openDays.includes(state.viewDay) ? state.viewDay : t;
+  return h("div", { class: "catchup", role: "note" },
+    h("strong", {}, "Catch up on earlier days"),
+    h("p", {}, `This challenge started ${fmtDay(ch.start, { weekday: "long" })}. Tick what you already did on those days. You have until `, h("b", {}, when), ", then they lock for good."),
+    h("div", { class: "catchup-days", role: "group", "aria-label": "Which day" }, days.map((d) => {
+      const s = L.dayScore(p, ch, d);
+      return h("button", { class: "mini-btn", type: "button", "aria-pressed": String(shown === d), onclick: () => { state.viewDay = d; render(); } },
+        `${d === t ? "Today" : fmtDay(d, { weekday: "short" })} · ${s.hit}/${s.of}`);
+    })));
 }
 
 function goalRow(ch, p, g, date, t) {
@@ -344,7 +365,7 @@ function renderGrid(ch) {
 function boardPost(ch, r, live) {
   return h("article", { class: "post" + (live ? " live" : "") },
     h("h3", {}, h("span", {}, fmtDay(r.date), live ? h("span", { class: "live-chip" }, "Live") : null),
-      h("small", {}, live ? `Locks ${fmtDay(L.addDays(r.date, 1), { weekday: "short" })} noon` : `Day ${L.dayNumber(ch, r.date)}`)),
+      h("small", {}, live ? "Open · still ticking" : `Day ${L.dayNumber(ch, r.date)}`)),
     h("ol", {}, (r.rows || []).map((row, i) => h("li", { class: i === 0 && row.pct > 0 ? "top" : null },
       h("span", { class: "rank" }, String(i + 1)),
       h("div", {}, h("span", { class: "nm" }, row.name), row.perfect ? h("span", { class: "badge" }, "Perfect") : null, h("div", { class: "bar" }, h("i", { style: `width:${row.pct}%` }))),
@@ -356,7 +377,7 @@ function renderBoard(ch) {
   const t = today();
   const all = Object.values(state.results || {}).filter((r) => r.challengeId === ch.id).sort((a, b) => (a.date < b.date ? 1 : -1));
   const posted = new Set(all.map((r) => r.date));
-  const live = [t, L.addDays(t, -1)].filter((d) => L.inChallenge(ch, d) && !L.isFinal(d, now()) && !posted.has(d))
+  const live = L.editableDates(ch, now()).filter((d) => !posted.has(d))
     .map((d) => L.buildResult(state.players, ch, d, now()));
   const posts = all.slice(0, state.boardAll ? 60 : 3);
   const head = h("div", { class: "sec-head" }, h("h2", { id: "boardH" }, "Daily Board"), h("span", { class: "note" }, "Live all day · locks at noon next day"));
@@ -403,7 +424,7 @@ function openCreate() {
   let errors = {};
   const build = () => {
     const name = h("input", { id: "chName", maxlength: "60", placeholder: "Fall Cut", value: state._draftName || "" });
-    const start = h("input", { id: "chStart", type: "date", value: state._draftStart || t, min: t });
+    const start = h("input", { id: "chStart", type: "date", value: state._draftStart || t, min: L.addDays(t, -L.MAX_BACKDATE) });
     const end = h("input", { id: "chEnd", type: "date", value: state._draftEnd || L.addDays(t, 20), min: t });
     const list = h("ul", { class: "glist" }, goals.map((g, i) => h("li", { class: "gitem" }, h("span", { class: "n" }, String(i + 1)),
       h("div", { class: "gfields" },
@@ -413,7 +434,7 @@ function openCreate() {
     const keep = () => { state._draftName = name.value; state._draftStart = start.value; state._draftEnd = end.value; };
     return [
       h("h2", { id: "sheetTitle" }, "New challenge"),
-      h("p", { class: "sub" }, "Goals lock when it starts. After that you can add a goal or close one, and everyone sets their own target."),
+      h("p", { class: "sub" }, "Goals lock when it starts. After that you can add a goal or close one, and everyone sets their own target. Start up to a week back and everyone can catch up those days until noon tomorrow."),
       h("div", { class: "field" }, h("label", { for: "chName" }, "Name"), name, err("name")),
       h("div", { class: "row2" }, h("div", { class: "field" }, h("label", { for: "chStart" }, "Starts"), start, err("start")), h("div", { class: "field" }, h("label", { for: "chEnd" }, "Ends"), end, err("end"))),
       h("div", { class: "field", style: "margin-bottom:6px" }, h("label", {}, "Daily goals"), err("goals")), list,
