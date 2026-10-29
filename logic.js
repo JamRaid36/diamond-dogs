@@ -552,11 +552,43 @@
     return { at: nowMs, challenges: JSON.parse(JSON.stringify(challenges || {})), players: JSON.parse(JSON.stringify(players || {})),
       members: JSON.parse(JSON.stringify((members && members.emails) || [])) };
   }
+  // Parts store the record as a JSON string, so Firestore's nesting-depth limit can't reject a deeply nested record.
+  // A snapshot is stored as one small document per source record (GPT r2: one big document can be pushed past
+  // Firestore's 1 MiB by a single oversized record, and then every backup fails). Parts first, the manifest last, so a
+  // listed backup is a finished one; a part that fails is named in the manifest instead of sinking the rest.
+  function snapshotParts(snap) {
+    var parts = [];
+    Object.keys(snap.challenges).forEach(function (id) { parts.push({ pid: "challenge-" + id, kind: "challenge", docId: id, json: JSON.stringify(snap.challenges[id]) }); });
+    Object.keys(snap.players).forEach(function (id) { parts.push({ pid: "player-" + id, kind: "player", docId: id, json: JSON.stringify(snap.players[id]) }); });
+    parts.push({ pid: "members", kind: "members", docId: "members", json: JSON.stringify({ emails: snap.members }) });
+    return parts;
+  }
+  // Reassemble, and say whether it's whole: every part the manifest promised is here, by count and per kind.
+  function assembleSnapshot(manifest, parts) {
+    var out = { at: manifest.at, challenges: {}, players: {}, members: [], failed: (manifest.failed || []).slice() };
+    (parts || []).forEach(function (p) {
+      var data;
+      try { data = typeof p.json === "string" ? JSON.parse(p.json) : p.data; } catch (e) { out.failed.push(p.kind + "-" + p.docId + " (unreadable)"); return; }
+      if (p.kind === "challenge") out.challenges[p.docId] = data;
+      else if (p.kind === "player") out.players[p.docId] = data;
+      else if (p.kind === "members") out.members = (data && data.emails) || [];
+    });
+    var expected = (manifest.parts || 0) - (manifest.failed || []).length;
+    out.complete = (parts || []).length === expected && Object.keys(out.challenges).length === (manifest.challenges || 0)
+      && Object.keys(out.players).length === (manifest.players || 0) && out.failed.length === 0;
+    return out;
+  }
   // Due when the newest snapshot is older than BACKUP_EVERY_MS. Old ones past BACKUP_KEEP get pruned, oldest first.
+  // Complete backups (no failed parts) are what we're keeping; pruning only ever removes complete ones beyond the
+  // newest BACKUP_KEEP - 1, and incomplete ones beyond the newest 3. So a record that keeps failing can never push
+  // the last good copies out (GPT r3).
+  function backupComplete(m) { return !!m && Array.isArray(m.failed) && m.failed.length === 0; }
   function backupPlan(backups, nowMs) {
     var ids = Object.keys(backups || {}).sort(function (a, b) { return (backups[b].at || 0) - (backups[a].at || 0); });
     var newest = ids.length ? backups[ids[0]].at || 0 : 0;
-    return { due: !ids.length || nowMs - newest >= BACKUP_EVERY_MS, prune: ids.slice(BACKUP_KEEP - 1) };
+    var complete = ids.filter(function (id) { return backupComplete(backups[id]); });
+    var partial = ids.filter(function (id) { return !backupComplete(backups[id]); });
+    return { due: !ids.length || nowMs - newest >= BACKUP_EVERY_MS, prune: complete.slice(BACKUP_KEEP - 1).concat(partial.slice(3)) };
   }
 
   // ---------- pack points: group goals score the group together ----------
@@ -903,7 +935,7 @@
     inChallenge: inChallenge, goalList: goalList, activeGoals: activeGoals, isLocked: isLocked, isDone: isDone,
     dayScore: dayScore, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
     strikesFor: strikesFor, potStatus: potStatus, potPatch: potPatch, paidPatch: paidPatch,
-    groupScore: groupScore, snapshotOf: snapshotOf, backupPlan: backupPlan, BACKUP_KEEP: BACKUP_KEEP, endForWeeks: endForWeeks, weeksOf: weeksOf, chFor: chFor, ownView: ownView, ownPatch: ownPatch, ownGoals: ownGoals, MAX_PERSONAL: MAX_PERSONAL, ownGoalsWithout: ownGoalsWithout, canAddOwn: canAddOwn,
+    groupScore: groupScore, snapshotOf: snapshotOf, snapshotParts: snapshotParts, assembleSnapshot: assembleSnapshot, backupComplete: backupComplete, backupPlan: backupPlan, BACKUP_KEEP: BACKUP_KEEP, endForWeeks: endForWeeks, weeksOf: weeksOf, chFor: chFor, ownView: ownView, ownPatch: ownPatch, ownGoals: ownGoals, MAX_PERSONAL: MAX_PERSONAL, ownGoalsWithout: ownGoalsWithout, canAddOwn: canAddOwn,
     minGoalsOn: minGoalsOn, goalSetKey: goalSetKey, signoffFor: signoffFor, signoffVotePatch: signoffVotePatch, ownerSignoffPatch: ownerSignoffPatch, minGoalsPatch: minGoalsPatch,
     strikeKey: strikeKey, appealPatch: appealPatch, votePatch: votePatch, houseRulesPatch: houseRulesPatch, MAX_RULES: MAX_RULES, treasurerPatch: treasurerPatch, treasurerOf: treasurerOf, MAX_PAYHOW: MAX_PAYHOW, paidOf: paidOf, ownerPaidPatch: ownerPaidPatch, settlePatch: settlePatch, unsettlePatch: unsettlePatch,
     isSkip: isSkip, skipDates: skipDates, skipPatch: skipPatch, renamePatch: renamePatch, endPlan: endPlan, handoffPlan: handoffPlan,

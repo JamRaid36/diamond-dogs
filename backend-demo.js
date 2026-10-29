@@ -141,8 +141,15 @@ export function createDemoBackend(scenario = "active", opts = {}) {
     async mergePlayer(uid, patch) { await wait(); if (uid !== user?.uid && store.members.ownerEmail !== user?.email) throw new Error("not yours"); store.players[uid] = deepMerge(store.players[uid] || {}, patch); emit("players"); },
     async mergeChallenge(id, patch) { patch = L.pruneEmpty(patch); await wait(); store.challenges[id] = deepMerge(store.challenges[id] || {}, patch); emit("challenges"); },
     async setOwnGoals(id, uid, goals) { await wait(); const c = store.challenges[id]; store.challenges[id] = Object.assign({}, c, { playerGoals: Object.assign({}, c.playerGoals, { [uid]: goals }) }); emit("challenges"); },
-    async createBackup(id, data) { await wait(); if (store.members.ownerEmail !== user?.email) throw new Error("owner only"); store.backups[id] = data; emit("backups"); },
-    async deleteBackup(id) { await wait(); delete store.backups[id]; emit("backups"); },
+    async createBackup(id, manifest, parts) {
+      await wait(); if (store.members.ownerEmail !== user?.email) throw new Error("owner only");
+      store.backupParts = store.backupParts || {};
+      store.backupParts[id] = JSON.parse(JSON.stringify(parts.map((p) => ({ kind: p.kind, docId: p.docId, json: p.json }))));
+      store.backups[id] = Object.assign({}, manifest, { parts: parts.length, failed: [] }); emit("backups"); return [];
+    },
+    async backupSource() { await wait(); return JSON.parse(JSON.stringify({ challenges: store.challenges, players: store.players, members: store.members })); },
+    async readBackup(id) { await wait(); return JSON.parse(JSON.stringify((store.backupParts || {})[id] || [])); },
+    async deleteBackup(id) { await wait(); delete store.backups[id]; if (store.backupParts) delete store.backupParts[id]; emit("backups"); },
     async deleteChallenge(id) { await wait(); if (store.members.ownerEmail !== user?.email) throw new Error("owner only"); delete store.challenges[id]; emit("challenges"); },
     async replaceResult(date, data) { await wait(); if (store.members.ownerEmail !== user?.email) throw new Error("owner only"); if (store.results[date] && store.results[date].challengeId !== data.challengeId) throw new Error("other challenge"); store.results[date] = data; emit("results"); },
     async deletePlayer(uid) { await wait(); if (store.members.ownerEmail !== user?.email) throw new Error("owner only"); delete store.players[uid]; emit("players"); },

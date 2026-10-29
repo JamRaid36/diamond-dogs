@@ -6,7 +6,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, getDoc, setDoc, addDoc,
-  onSnapshot, query, orderBy, limit, deleteDoc, updateDoc, FieldPath,
+  onSnapshot, query, orderBy, limit, deleteDoc, updateDoc, FieldPath, getDocs, getDocsFromServer, getDocFromServer, waitForPendingWrites,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 export function createFirebaseBackend(config) {
@@ -77,8 +77,32 @@ export function createFirebaseBackend(config) {
     // Owner only (the rules refuse anyone else).
     async deleteChallenge(id) { await deleteDoc(doc(db, "challenges", id)); },
     // Owner only (rules): snapshots.
-    async createBackup(id, data) { await setDoc(doc(db, "backups", id), data); },
-    async deleteBackup(id) { await deleteDoc(doc(db, "backups", id)); },
+    // A backup's source, read fresh from the server (never the local cache, which can be empty or stale before the
+    // app syncs; GPT r4). Any failed read throws, so no backup is made from a partial picture.
+    async backupSource() {
+      await waitForPendingWrites(db); // our own queued edits settle (accepted or rejected) before we copy anything (GPT r5)
+      const read = async (name) => { const qs = await getDocsFromServer(collection(db, name)); const out = {}; qs.forEach((d) => { out[d.id] = d.data(); }); return out; };
+      const [challenges, players, members] = await Promise.all([read("challenges"), read("players"), getDocFromServer(membersRef).then((s) => (s.exists() ? s.data() : { emails: [] }))]);
+      return { challenges, players, members };
+    },
+    // Parts first, manifest last (see logic.snapshotParts).
+    async createBackup(id, manifest, parts) {
+      const failed = [];
+      for (const p of parts) { try { await setDoc(doc(db, "backups", id, "parts", p.pid), { kind: p.kind, docId: p.docId, json: p.json }); } catch (e) { console.error(e); failed.push(p.pid); } }
+      await setDoc(doc(db, "backups", id), Object.assign({}, manifest, { parts: parts.length, failed }));
+      return failed;
+    },
+    // From the server only: a cached read could be partial and look complete (GPT r3).
+    async readBackup(id) { const qs = await getDocsFromServer(collection(db, "backups", id, "parts")); const out = []; qs.forEach((d) => out.push(d.data())); return out; },
+    // Parts first (enumerated from the server), the manifest only after every part is gone; any failure throws and
+    // leaves the manifest in place, so the next prune retries (GPT r4: an offline empty listing orphaned parts).
+    async deleteBackup(id) {
+      const qs = await getDocsFromServer(collection(db, "backups", id, "parts"));
+      for (const d of qs.docs) await deleteDoc(d.ref);
+      const left = await getDocsFromServer(collection(db, "backups", id, "parts"));
+      if (!left.empty) throw new Error("backup parts still there");
+      await deleteDoc(doc(db, "backups", id));
+    },
     async deletePlayer(uid) { await deleteDoc(doc(db, "players", uid)); },
     // Owner only: re-post a day in one write (the rules allow the owner, same date, same challenge).
     async replaceResult(date, data) { await setDoc(doc(db, "results", date), data); },

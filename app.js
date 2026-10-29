@@ -1414,8 +1414,12 @@ function backupsField() {
   const b = state.backups;
   const ids = Object.keys(b || {}).sort((x, y) => (b[y].at || 0) - (b[x].at || 0));
   const when = (ms) => new Date(ms).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-  const download = (id) => {
-    const blob = new Blob([JSON.stringify(b[id], null, 2)], { type: "application/json" });
+  const download = async (id) => {
+    let parts;
+    try { parts = await state.backend.readBackup(id); } catch (e) { console.error(e); return toast("Couldn't read that backup. Try again."); }
+    const snap = L.assembleSnapshot(b[id], parts);
+    if (!snap.complete) toast("Heads up: that backup is missing pieces (it's marked in the file). Try an older one too, and tell Leo.");
+    const blob = new Blob([JSON.stringify(snap, null, 2)], { type: "application/json" });
     const a = h("a", { href: URL.createObjectURL(blob), download: `alpha-pack-backup-${id}.json` });
     document.body.append(a); a.click(); a.remove();
   };
@@ -1423,7 +1427,7 @@ function backupsField() {
     h("p", { class: "seg-note", style: "margin-top:0" }, `A full copy of everything (challenges, goals, ticks, votes, payments, the group list), taken every 6 hours when you open the app. The last ${L.BACKUP_KEEP} are kept. Only you can see them. If something ever breaks, download the latest good one and send it to Leo.`),
     b == null ? h("p", { class: "seg-note" }, "Loading backups…")
       : ids.length ? h("ul", { class: "backups" }, ids.map((id) => h("li", {},
-        h("span", {}, when(b[id].at), h("small", {}, ` · ${Object.keys(b[id].challenges || {}).length} challenge(s), ${Object.keys(b[id].players || {}).length} players`)),
+        h("span", {}, when(b[id].at), h("small", {}, ` · ${b[id].challenges || 0} challenge(s), ${b[id].players || 0} players${(b[id].failed || []).length ? ` · incomplete (${b[id].failed.length} missing)` : " · complete"}`)),
         h("span", { class: "pd-act" },
           h("button", { class: "mini-btn", type: "button", style: "min-height:44px", onclick: () => download(id) }, "Download")))))
       : h("p", { class: "seg-note" }, "No snapshots yet."),
@@ -1498,7 +1502,10 @@ async function autoBackup(force, label) {
   state._backingUp = true;
   try {
     const id = new Date(now()).toISOString().replace(/[:.]/g, "-") + (label ? "-" + label : "");
-    await state.backend.createBackup(id, L.snapshotOf(state.challenges, state.players, state.members, now()));
+    const src = await state.backend.backupSource(); // fresh from the server; throws (no backup) if it can't
+    const snap = L.snapshotOf(src.challenges, src.players, src.members, now());
+    const failed = await state.backend.createBackup(id, { at: snap.at, challenges: Object.keys(snap.challenges).length, players: Object.keys(snap.players).length }, L.snapshotParts(snap));
+    if (failed.length && !state._backupWarned) { state._backupWarned = true; toast(`Heads up: ${failed.length} part(s) of today's backup didn't save. Tell Leo.`); }
     for (const old of plan.prune) await state.backend.deleteBackup(old).catch(() => {});
     return id;
   } catch (e) {
