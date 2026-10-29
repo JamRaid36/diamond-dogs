@@ -1,7 +1,9 @@
 /* Diamond Dogs — pure game logic. No DOM, no network, no clock reads except where `now` is passed in.
  * Loaded as a classic script in the page (window.DDLogic) and required by the node test suite.
  * Data shapes (Firestore):
- *   challenges/<id>  {name, start, end, createdBy, createdAt, goals: {<goalId>: {text, addedOn, closedOn|null, order}}}
+ *   challenges/<id>  {name, start, end, createdBy, createdAt,
+ *                     goals: {<goalId>: {text, addedOn, closedOn|null, order, perWeek|null}}}
+ *                     perWeek null = a daily goal (every day counts); 1-7 = "N days a week", weeks run Mon-Sun.
  *   players/<uid>    {name, joinedAt, targets: {<goalId>: text}, days: {<YYYY-MM-DD>: {<goalId>: bool}}}
  *   results/<date>   {date, challengeId, rows: [{uid, name, hit, of, pct, perfect}], createdAt}   (create-only)
  * Day boundary is America/Los_Angeles. A day stays editable until noon the next day, then it is final and its
@@ -74,8 +76,57 @@
     return !!(d && d[goalId] === true);
   }
 
+  function isWeekly(g) { return !!(g && g.perWeek); }
+
+  // Daily goals only: weekly goals are scored by the week, so a rest day can still be a perfect day.
+  function dailyGoals(ch, date) { return activeGoals(ch, date).filter(function (g) { return !isWeekly(g); }); }
+  function weeklyGoals(ch, date) { return activeGoals(ch, date).filter(isWeekly); }
+
+  // Monday of the week holding `date` (weeks run Mon-Sun).
+  function weekStart(date) {
+    var p = date.split("-").map(Number);
+    var dow = new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay(); // 0 Sun .. 6 Sat
+    return addDays(date, -((dow + 6) % 7));
+  }
+
+  // Progress on one weekly goal in the week holding `date`, counting ticks up to `date`.
+  function weekProgress(player, ch, goal, date) {
+    var start = weekStart(date);
+    var done = 0, counted = 0;
+    for (var d = start; d <= addDays(start, 6); d = addDays(d, 1)) {
+      if (!activeGoals(ch, d).some(function (g) { return g.id === goal.id; })) continue;
+      counted++;
+      if (d <= date && isDone(player, d, goal.id)) done++;
+    }
+    var need = Math.min(goal.perWeek, counted); // a short first/last week can't need more days than it has
+    return { done: done, need: need, met: need > 0 && done >= need, weekStart: start };
+  }
+
+  // Weekly goals met so far this week, and how many there are.
+  function weekScore(player, ch, date) {
+    var goals = weeklyGoals(ch, date);
+    var met = goals.filter(function (g) { return weekProgress(player, ch, g, date).met; }).length;
+    return { met: met, of: goals.length };
+  }
+
+  // Consecutive met weeks for a weekly goal. This week counts once met; until then the streak through last week stands.
+  function weekStreak(player, ch, goalId, today) {
+    var goal = goalList(ch).filter(function (g) { return g.id === goalId; })[0];
+    if (!goal) return 0;
+    var wk = weekStart(today);
+    var cur = weekProgress(player, ch, goal, today);
+    var n = 0;
+    if (cur.met) n++;
+    for (var d = addDays(wk, -1); inChallenge(ch, d); d = addDays(weekStart(d), -1)) {
+      var pr = weekProgress(player, ch, goal, addDays(weekStart(d), 6));
+      if (!pr.met) break;
+      n++;
+    }
+    return n;
+  }
+
   function dayScore(player, ch, date) {
-    var goals = activeGoals(ch, date);
+    var goals = dailyGoals(ch, date);
     var hit = goals.filter(function (g) { return isDone(player, date, g.id); }).length;
     var of = goals.length;
     return { hit: hit, of: of, pct: of ? Math.round((hit / of) * 100) : 0, perfect: of > 0 && hit === of };
@@ -140,7 +191,8 @@
     var rows = Object.keys(players || {}).map(function (uid) {
       var p = players[uid];
       var s = dayScore(p, ch, date);
-      return { uid: uid, name: (p && p.name) || "Player", hit: s.hit, of: s.of, pct: s.pct, perfect: s.perfect };
+      var w = weekScore(p, ch, date);
+      return { uid: uid, name: (p && p.name) || "Player", hit: s.hit, of: s.of, pct: s.pct, perfect: s.perfect, wkMet: w.met, wkOf: w.of };
     }).filter(function (r) { return joinedBy(players[r.uid], date); });
     rows.sort(function (a, b) { return b.pct - a.pct || b.hit - a.hit || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0); });
     return { date: date, challengeId: ch.id, rows: rows, createdAt: nowMs };
@@ -170,11 +222,18 @@
     return "g" + seed.toString(36);
   }
 
-  // Validate a new challenge form. Returns {ok, errors: {field: message}, value}.
+  function cleanPerWeek(v) {
+    var n = Number(v);
+    return n >= 1 && n <= 6 ? Math.round(n) : null; // 7 a week is the same as daily
+  }
+
+  // Validate a new challenge form. Goals are strings or {text, perWeek}. Returns {ok, errors, value}.
   function validateChallenge(input, today) {
     var errors = {};
     var name = cleanText(input.name);
-    var goals = (input.goals || []).map(cleanText).filter(Boolean);
+    var goals = (input.goals || []).map(function (g) {
+      return typeof g === "string" ? { text: cleanText(g), perWeek: null } : { text: cleanText(g.text), perWeek: cleanPerWeek(g.perWeek) };
+    }).filter(function (g) { return g.text; });
     if (!name) errors.name = "Give the challenge a name.";
     if (!isDate(input.start)) errors.start = "Pick a start date.";
     else if (input.start < today) errors.start = "Start today or later.";
@@ -187,20 +246,20 @@
     var value = null;
     if (ok) {
       var g = {};
-      goals.forEach(function (text, i) { g["g" + (i + 1)] = { text: text, addedOn: input.start, closedOn: null, order: i + 1 }; });
+      goals.forEach(function (x, i) { g["g" + (i + 1)] = { text: x.text, addedOn: input.start, closedOn: null, order: i + 1, perWeek: x.perWeek }; });
       value = { name: name, start: input.start, end: input.end, goals: g };
     }
     return { ok: ok, errors: errors, value: value };
   }
 
   // Patch that adds a goal mid-challenge. It counts from `today` (or the start, if not started yet).
-  function addGoalPatch(ch, text, today, seed) {
+  function addGoalPatch(ch, text, today, seed, perWeek) {
     var t = cleanText(text);
     if (!t) return { error: "Type the goal first." };
     if (goalList(ch).filter(function (g) { return !g.closedOn; }).length >= MAX_GOALS) return { error: "Twelve goals at most." };
     var order = goalList(ch).reduce(function (m, g) { return Math.max(m, g.order || 0); }, 0) + 1;
     var goals = {};
-    goals[goalId(seed)] = { text: t, addedOn: today > ch.start ? today : ch.start, closedOn: null, order: order };
+    goals[goalId(seed)] = { text: t, addedOn: today > ch.start ? today : ch.start, closedOn: null, order: order, perWeek: cleanPerWeek(perWeek) };
     return { patch: { goals: goals } };
   }
 
@@ -222,6 +281,19 @@
     var goals = {};
     goals[id] = { text: t };
     return { patch: { goals: goals } };
+  }
+
+  // Patch that changes a goal between daily and N-a-week. Only before the challenge starts.
+  function cadencePatch(ch, id, perWeek, today) {
+    if (isLocked(ch, today)) return { error: "Goals are locked once the challenge starts. Close it and add a new one." };
+    if (!(ch.goals && ch.goals[id])) return { error: "That goal is gone." };
+    var goals = {};
+    goals[id] = { perWeek: cleanPerWeek(perWeek) };
+    return { patch: { goals: goals } };
+  }
+
+  function cadenceLabel(g) {
+    return isWeekly(g) ? g.perWeek + (g.perWeek === 1 ? " day" : " days") + " a week" : "Every day";
   }
 
   // Patch for one tick. Refuses outside the edit window or for goals not active that day.
@@ -260,7 +332,9 @@
     dayScore: dayScore, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
     resultsDue: resultsDue, resultId: resultId, buildResult: buildResult, joinedBy: joinedBy,
     currentChallenge: currentChallenge, cleanText: cleanText, validateChallenge: validateChallenge,
-    addGoalPatch: addGoalPatch, closeGoalPatch: closeGoalPatch, editGoalPatch: editGoalPatch, tickPatch: tickPatch,
+    addGoalPatch: addGoalPatch, cadencePatch: cadencePatch, cadenceLabel: cadenceLabel, isWeekly: isWeekly,
+    dailyGoals: dailyGoals, weeklyGoals: weeklyGoals, weekStart: weekStart, weekProgress: weekProgress,
+    weekScore: weekScore, weekStreak: weekStreak, closeGoalPatch: closeGoalPatch, editGoalPatch: editGoalPatch, tickPatch: tickPatch,
     gridDates: gridDates, dayNumber: dayNumber, challengeLength: challengeLength
   };
 });

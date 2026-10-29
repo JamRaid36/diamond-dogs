@@ -21,7 +21,7 @@ function seed(scenario, now) {
     createdBy: "me", createdAt: now,
     goals: {
       g1: { text: "Hit protein", addedOn: scenario === "upcoming" ? d(2) : start, closedOn: null, order: 1 },
-      g2: { text: "Train or walk", addedOn: scenario === "upcoming" ? d(2) : start, closedOn: null, order: 2 },
+      g2: { text: "Train or walk", addedOn: scenario === "upcoming" ? d(2) : start, closedOn: null, order: 2, perWeek: 5 },
       g3: { text: "No sugar", addedOn: scenario === "upcoming" ? d(2) : start, closedOn: null, order: 3 },
       g4: { text: "Lights out by 11", addedOn: scenario === "upcoming" ? d(2) : d(-2), closedOn: null, order: 4 },
     },

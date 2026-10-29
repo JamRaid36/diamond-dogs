@@ -183,24 +183,29 @@ function renderYou(ch) {
   const date = viewDate();
   const p = me();
   const score = L.dayScore(p, ch, date);
-  const goals = L.activeGoals(ch, date);
+  const goals = L.dailyGoals(ch, date);
+  const weekly = L.weeklyGoals(ch, date);
+  const wk = L.weekScore(p, ch, date);
   const yEditable = L.isEditable(L.addDays(t, -1), now()) && L.inChallenge(ch, L.addDays(t, -1));
   const perfectStreak = L.perfectStreak(p, ch, t);
-  const sub = score.perfect ? "Perfect day. Every goal done." :
-    score.hit === 0 ? `${goals.length} goal${goals.length === 1 ? "" : "s"} to tick` :
-    `${score.of - score.hit} to go`;
+  const sub = !goals.length ? `${wk.met} of ${wk.of} weekly goals met` :
+    score.perfect ? "Perfect day. Every daily goal done." :
+    score.hit === 0 ? `${goals.length} daily goal${goals.length === 1 ? "" : "s"} to tick` :
+    `${score.of - score.hit} to go today`;
   const card = h("section", { class: "you", id: "you", "aria-labelledby": "youTitle" },
     h("div", { class: "perfect", "aria-hidden": "true" }),
-    h("div", { class: "you-head" }, ring(score),
+    h("div", { class: "you-head" }, ring(goals.length ? score : { hit: wk.met, of: wk.of }),
       h("div", { class: "you-title" }, h("p", { class: "eyebrow" }, ch.name), h("h1", { id: "youTitle" }, date === t ? "Today" : "Yesterday"),
         h("p", {}, `${fmtDay(date)} · ${sub}`))),
     yEditable ? h("div", { class: "seg", role: "group", "aria-label": "Which day" },
       h("button", { type: "button", "aria-pressed": String(date === t), onclick: () => { state.viewDay = "today"; render(); } }, "Today"),
       h("button", { type: "button", "aria-pressed": String(date !== t), onclick: () => { state.viewDay = "yesterday"; render(); } }, "Yesterday · until noon")) : null,
-    goals.length ? h("ul", { class: "goals" }, goals.map((g) => goalRow(ch, p, g, date, t))) :
-      h("p", { class: "empty" }, "No goals count today. Add one from the menu."),
+    goals.length ? h("ul", { class: "goals" }, goals.map((g) => goalRow(ch, p, g, date, t))) : null,
+    weekly.length ? h("div", { class: "wk-head" }, h("span", {}, "This week"), h("small", {}, `${wk.met} of ${wk.of} met · resets Monday`)) : null,
+    weekly.length ? h("ul", { class: "goals" }, weekly.map((g) => goalRow(ch, p, g, date, t))) : null,
+    !goals.length && !weekly.length ? h("p", { class: "empty" }, "No goals count today. Add one from the menu.") : null,
     h("div", { class: "you-foot" },
-      h("span", { class: "foot-note" + (perfectStreak >= 3 ? " hot" : "") }, perfectStreak ? `${perfectStreak} perfect day${perfectStreak === 1 ? "" : "s"} in a row` : `Tick all ${goals.length} for a perfect day`),
+      h("span", { class: "foot-note" + (perfectStreak >= 3 ? " hot" : "") }, perfectStreak ? `${perfectStreak} perfect day${perfectStreak === 1 ? "" : "s"} in a row` : goals.length ? `Tick all ${goals.length} daily goals for a perfect day` : "Weekly goals only"),
       h("button", { class: "link-btn", type: "button", onclick: openSettings }, "Edit goals")));
   return card;
 }
@@ -208,12 +213,16 @@ function renderYou(ch) {
 function goalRow(ch, p, g, date, t) {
   const done = L.isDone(p, date, g.id);
   const target = p.targets?.[g.id];
-  const streak = L.goalStreak(p, ch, g.id, t);
+  const weekly = L.isWeekly(g);
+  const prog = weekly ? L.weekProgress(p, ch, g, date) : null;
+  const streak = weekly ? L.weekStreak(p, ch, g.id, t) : L.goalStreak(p, ch, g.id, t);
   const btn = h("button", { class: "goal", type: "button", role: "checkbox", "aria-checked": String(done), "data-goal": g.id,
     onclick: () => tick(ch, date, g.id, !done, btn) });
   const box = h("span", { class: "box" });
   box.innerHTML = SVG.check;
-  btn.append(box, h("span", { class: "goal-text" }, h("strong", {}, g.text), target ? h("small", {}, `Your target: ${target}`) : null), streakEl(streak, "Days in a row"));
+  const small = [target ? `Your target: ${target}` : null, weekly ? L.cadenceLabel(g) : null].filter(Boolean).join(" · ");
+  btn.append(box, h("span", { class: "goal-text" }, h("strong", {}, g.text), small ? h("small", {}, small) : null),
+    weekly ? h("span", { class: "wk" + (prog.met ? " met" : ""), "aria-label": `${prog.done} of ${prog.need} this week` }, `${prog.done}/${prog.need}`) : streakEl(streak, "Days in a row"));
   return h("li", {}, btn);
 }
 
@@ -270,7 +279,8 @@ function renderFinished(ch) {
 function renderPack(ch) {
   const t = today();
   const date = L.inChallenge(ch, t) ? t : t > ch.end ? ch.end : ch.start;
-  const goals = L.activeGoals(ch, date);
+  const goals = L.dailyGoals(ch, date);
+  const weekly = L.weeklyGoals(ch, date);
   const ids = packOrder(ch, date);
   const tags = ids.map((uid) => {
     const p = state.players[uid];
@@ -284,13 +294,20 @@ function renderPack(ch) {
         h("div", { class: "tag-row" },
           h("div", { class: "tag-name" }, h("b", {}, p.name || "Player"), h("span", {}, isMe ? "You" : ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : s.hit ? `${s.of - s.hit} to go today` : "Nothing ticked yet today")),
           h("div", { class: "tag-score" }, `${s.hit}/${s.of}`, h("small", {}, "today"))),
-        h("div", { class: "pips", "aria-hidden": "true" }, goals.map((g) => h("span", { class: "pip" + (L.isDone(p, date, g.id) ? " on" : "") })))),
+        h("div", { class: "pips", "aria-hidden": "true" }, goals.map((g) => h("span", { class: "pip" + (L.isDone(p, date, g.id) ? " on" : "") })),
+          weekly.map((g) => { const pr = L.weekProgress(p, ch, g, date); return h("span", { class: "wbar" + (pr.met ? " met" : "") }, h("i", { style: `width:${pr.need ? Math.min(100, Math.round(pr.done / pr.need * 100)) : 0}%` })); }))),
       open ? h("div", { class: "tag-detail", id: detailId }, goals.map((g) => {
         const on = L.isDone(p, date, g.id);
         const dot = h("span", { class: "dot" + (on ? " on" : "") });
         if (on) dot.innerHTML = SVG.check;
         return h("div", {}, dot, h("span", { class: "t" }, g.text, p.targets?.[g.id] ? h("small", {}, ` · ${p.targets[g.id]}`) : null),
           streakEl(L.goalStreak(p, ch, g.id, date), "Days in a row"));
+      }), weekly.map((g) => {
+        const pr = L.weekProgress(p, ch, g, date);
+        const dot = h("span", { class: "dot" + (pr.met ? " on" : "") });
+        if (pr.met) dot.innerHTML = SVG.check;
+        return h("div", {}, dot, h("span", { class: "t" }, g.text, h("small", {}, ` · ${L.cadenceLabel(g)}${p.targets?.[g.id] ? " · " + p.targets[g.id] : ""}`)),
+          h("span", { class: "wk" + (pr.met ? " met" : "") }, `${pr.done}/${pr.need}`));
       })) : null);
   });
   return h("section", { "aria-labelledby": "packH" },
@@ -331,7 +348,7 @@ function renderBoard(ch) {
       h("ol", {}, (r.rows || []).map((row, i) => h("li", { class: i === 0 && row.pct > 0 ? "top" : null },
         h("span", { class: "rank" }, String(i + 1)),
         h("div", {}, h("span", { class: "nm" }, row.name), row.perfect ? h("span", { class: "badge" }, "Perfect") : null, h("div", { class: "bar" }, h("i", { style: `width:${row.pct}%` }))),
-        h("span", { class: "pct" }, `${row.hit}/${row.of}`)))))),
+        h("span", { class: "pct" }, row.of ? `${row.hit}/${row.of}` : "", row.wkOf ? h("small", { class: "wkn" }, `wk ${row.wkMet}/${row.wkOf}`) : null)))))),
     all.length > posts.length ? h("button", { class: "mini-btn more", type: "button", onclick: () => { state.boardAll = true; render(); } }, `Show ${all.length - posts.length} older`) : null));
 }
 
@@ -339,6 +356,15 @@ function renderFoot() {
   return h("p", { class: "fine", style: "color:var(--muted);font-size:13px;text-align:center;margin:0" },
     state.user?.email ? `Signed in as ${state.user.email} · ` : "",
     h("button", { class: "link-btn", type: "button", onclick: () => state.backend.signOut() }, "Sign out"));
+}
+
+// "Every day" or "N days a week". Values: "" = daily, "1".."6".
+function cadenceSelect(id, perWeek, onChange, label) {
+  const sel = h("select", { id, class: "cad", "aria-label": label, onchange: (e) => onChange(e.target.value ? Number(e.target.value) : null) },
+    h("option", { value: "" }, "Every day"),
+    [1, 2, 3, 4, 5, 6].map((n) => h("option", { value: String(n) }, `${n} day${n === 1 ? "" : "s"} a week`)));
+  sel.value = perWeek ? String(perWeek) : "";
+  return sel;
 }
 
 // ---------- sheets ----------
@@ -355,14 +381,16 @@ function closeBtn() { return h("button", { class: "btn ghost", type: "button", o
 
 function openCreate() {
   const t = today();
-  const goals = ["", "", ""];
+  const goals = [{ text: "", perWeek: null }, { text: "", perWeek: null }, { text: "", perWeek: null }];
   let errors = {};
   const build = () => {
     const name = h("input", { id: "chName", maxlength: "60", placeholder: "Fall Cut", value: state._draftName || "" });
     const start = h("input", { id: "chStart", type: "date", value: state._draftStart || t, min: t });
     const end = h("input", { id: "chEnd", type: "date", value: state._draftEnd || L.addDays(t, 20), min: t });
-    const list = h("ul", { class: "glist" }, goals.map((g, i) => h("li", {}, h("span", { class: "n" }, String(i + 1)),
-      h("div", { class: "field", style: "margin:0;flex:1" }, h("input", { id: `chGoal${i}`, maxlength: "60", value: g, placeholder: ["Protein 200g", "Lift or walk 30 min", "No sugar"][i] || "Another goal", "aria-label": `Goal ${i + 1}`, oninput: (e) => { goals[i] = e.target.value; } })))));
+    const list = h("ul", { class: "glist" }, goals.map((g, i) => h("li", { class: "gitem" }, h("span", { class: "n" }, String(i + 1)),
+      h("div", { class: "gfields" },
+        h("input", { id: `chGoal${i}`, maxlength: "60", value: g.text, placeholder: ["Protein 200g", "Lift", "No sugar"][i] || "Another goal", "aria-label": `Goal ${i + 1}`, oninput: (e) => { goals[i].text = e.target.value; } }),
+        cadenceSelect(`chCad${i}`, g.perWeek, (v) => { goals[i].perWeek = v; }, `How often for goal ${i + 1}`)))));
     const err = (k) => errors[k] ? h("p", { class: "err" }, errors[k]) : null;
     const keep = () => { state._draftName = name.value; state._draftStart = start.value; state._draftEnd = end.value; };
     return [
@@ -371,7 +399,7 @@ function openCreate() {
       h("div", { class: "field" }, h("label", { for: "chName" }, "Name"), name, err("name")),
       h("div", { class: "row2" }, h("div", { class: "field" }, h("label", { for: "chStart" }, "Starts"), start, err("start")), h("div", { class: "field" }, h("label", { for: "chEnd" }, "Ends"), end, err("end"))),
       h("div", { class: "field", style: "margin-bottom:6px" }, h("label", {}, "Daily goals"), err("goals")), list,
-      h("button", { class: "mini-btn", type: "button", disabled: goals.length >= L.MAX_GOALS, onclick: () => { keep(); goals.push(""); openSheet(build); document.getElementById(`chGoal${goals.length - 1}`)?.focus(); } }, "Add another goal"),
+      h("button", { class: "mini-btn", type: "button", disabled: goals.length >= L.MAX_GOALS, onclick: () => { keep(); goals.push({ text: "", perWeek: null }); openSheet(build); document.getElementById(`chGoal${goals.length - 1}`)?.focus(); } }, "Add another goal"),
       h("div", { class: "sheet-actions", style: "margin-top:18px" }, closeBtn(), h("button", { class: "btn blaze", type: "button", onclick: async (e) => {
         keep();
         const v = L.validateChallenge({ name: name.value, start: start.value, end: end.value, goals }, t);
@@ -414,6 +442,13 @@ function openSettings() {
       return h("div", { class: "gset" + (closed ? " closed" : "") },
         h("div", { class: "gset-top" }, locked ? h("strong", {}, g.text) : h("div", { class: "field", style: "margin:0;flex:1" }, textField),
           closed ? h("small", {}, `Closed ${fmtDay(g.closedOn, { month: "short", day: "numeric" })}`) : g.addedOn > ch.start ? h("small", {}, `Added ${fmtDay(g.addedOn, { month: "short", day: "numeric" })}`) : null),
+        locked ? h("span", { class: "tlabel" }, L.cadenceLabel(g)) :
+          h("div", { class: "field", style: "margin:0" }, h("label", { class: "tlabel", for: `cad-${g.id}` }, "How often"),
+            cadenceSelect(`cad-${g.id}`, g.perWeek, async (v) => {
+              const r = L.cadencePatch(ch, g.id, v, t);
+              if (r.error) return toast(r.error);
+              try { await state.backend.mergeChallenge(ch.id, r.patch); toast("Saved."); } catch (e2) { console.error(e2); toast("That didn't save."); }
+            }, `How often for ${g.text}`)),
         h("div", { class: "field", style: "margin:0" }, h("label", { class: "tlabel", for: `tgt-${g.id}` }, "Your target"), target),
         closed ? null : h("div", {}, h("button", { class: "mini-btn danger", type: "button", onclick: async () => {
           if (confirmClose !== g.id) { confirmClose = g.id; openSheet(build); return; }
@@ -423,14 +458,16 @@ function openSettings() {
         } }, confirmClose === g.id ? "Tap again to close it for everyone" : "Close this goal")));
     });
     const addInput = h("input", { id: "addGoal", maxlength: "60", placeholder: "A new goal for everyone", "aria-label": "New goal" });
+    let addCad = null;
+    const addSel = cadenceSelect("addCad", null, (v) => { addCad = v; }, "How often for the new goal");
     return [
       h("h2", { id: "sheetTitle" }, ch.name),
       h("p", { class: "sub" }, `${fmtDay(ch.start, { month: "short", day: "numeric" })} – ${fmtDay(ch.end, { month: "short", day: "numeric", year: "numeric" })}`),
       locked ? (() => { const l = h("div", { class: "lockline" }); l.innerHTML = SVG.lock; l.append("Goals are locked in. You can add a goal from today, or close one: it stops counting today and its history stays."); return l; })() : null,
       h("div", { style: "display:grid;gap:10px;margin-bottom:16px" }, items),
-      h("div", { class: "field" }, h("label", { for: "addGoal" }, "Add a goal"), h("div", { style: "display:flex;gap:8px" }, addInput,
-        h("button", { class: "mini-btn", type: "button", style: "min-height:50px", onclick: async () => {
-          const r = L.addGoalPatch(ch, addInput.value, t, Date.now());
+      h("div", { class: "field" }, h("label", { for: "addGoal" }, "Add a goal"), addInput, h("div", { style: "display:flex;gap:8px" }, addSel,
+        h("button", { class: "mini-btn", type: "button", style: "min-height:50px;flex:none", onclick: async () => {
+          const r = L.addGoalPatch(ch, addInput.value, t, Date.now(), addCad);
           if (r.error) return toast(r.error);
           try { await state.backend.mergeChallenge(ch.id, r.patch); toast(locked ? "Goal added. It counts from today." : "Goal added."); } catch (e2) { console.error(e2); toast("That didn't save."); }
         } }, "Add"))),
