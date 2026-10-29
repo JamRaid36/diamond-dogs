@@ -5,8 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Alpha Pack</title>
 <meta name="description" content="Daily goals, streaks and the pack's scoreboard.">
-<meta name="theme-color" content="#eef1f4" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#14181d" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#0d1322">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Alpha Pack">
 <link rel="icon" type="image/png" href="icon-180.png">
@@ -18,52 +17,35 @@
 <style>
 /* Layout: one phone column. Sticky stamped header, then You (today's checklist), The Pack (a dog tag per player),
    the 7-day grid, and the Daily Board feed. Sheets slide up for challenge settings. */
+/* Night arena: the logo's world. Midnight sky, gold ribbon, ice-blue diamonds. Dark in every scheme, on purpose:
+   the logo is drawn to sit on night, and the pack opens this at 6 AM and 11 PM alike. */
 :root {
-  /* concrete + gunmetal, field-green for a hit, blaze orange reserved for streaks and the one primary action */
-  --bg: oklch(0.955 0.006 240);
-  --bg-deep: oklch(0.925 0.008 240);
-  --surface: oklch(0.992 0.003 240);
-  --ink: oklch(0.23 0.02 252);
-  --ink-soft: oklch(0.42 0.02 252);
-  --muted: oklch(0.55 0.018 250);
-  --line: oklch(0.87 0.01 245);
-  --tag: oklch(0.86 0.012 240);
-  --tag-edge: oklch(0.74 0.014 240);
-  --hit: oklch(0.6 0.15 152);
-  --hit-soft: oklch(0.92 0.05 152);
-  --blaze: oklch(0.66 0.15 75);   /* logo gold, deepened for contrast on light */
-  --blaze-soft: oklch(0.94 0.06 88);
-  --ice: oklch(0.62 0.13 240);    /* logo diamond blue */
-  --warn: oklch(0.58 0.16 28);
-  --shadow: 0 1px 0 oklch(1 0 0 / 0.6) inset, 0 1px 2px oklch(0.3 0.02 250 / 0.08), 0 8px 24px oklch(0.3 0.02 250 / 0.06);
+  --bg: oklch(0.17 0.03 262);
+  --bg-deep: oklch(0.135 0.028 262);
+  --surface: oklch(0.225 0.034 260);
+  --surface-hi: oklch(0.27 0.036 258);
+  --ink: oklch(0.96 0.01 85);
+  --ink-soft: oklch(0.84 0.018 80);
+  --muted: oklch(0.7 0.022 255);
+  --line: oklch(0.34 0.03 258);
+  --tag: oklch(0.3 0.02 255);
+  --tag-edge: oklch(0.46 0.024 255);
+  --hit: oklch(0.76 0.13 232);      /* logo diamond blue: a done goal */
+  --hit-soft: oklch(0.32 0.07 240);
+  --blaze: oklch(0.83 0.15 82);     /* logo ribbon gold: streaks, the pot, the one primary action */
+  --blaze-deep: oklch(0.66 0.15 62);
+  --blaze-soft: oklch(0.33 0.06 75);
+  --ice: oklch(0.78 0.11 232);
+  --warn: oklch(0.7 0.17 28);
+  --gold: linear-gradient(180deg, oklch(0.92 0.12 92) 0%, oklch(0.82 0.16 80) 48%, oklch(0.66 0.15 60) 100%);
+  --shadow: 0 1px 0 oklch(1 0 0 / 0.05) inset, 0 10px 30px oklch(0.05 0.02 262 / 0.55);
   --display: "Big Shoulders Display", "Arial Narrow", "Helvetica Neue", sans-serif;
   --stencil: "Big Shoulders Stencil Display", "Big Shoulders Display", "Arial Narrow", sans-serif;
   --body: "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
   --mono: "Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --r: 18px;
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: oklch(0.19 0.014 252);
-    --bg-deep: oklch(0.16 0.014 252);
-    --surface: oklch(0.235 0.016 252);
-    --ink: oklch(0.95 0.008 240);
-    --ink-soft: oklch(0.82 0.012 240);
-    --muted: oklch(0.68 0.016 245);
-    --line: oklch(0.32 0.016 250);
-    --tag: oklch(0.31 0.016 250);
-    --tag-edge: oklch(0.42 0.018 250);
-    --hit: oklch(0.76 0.16 152);
-    --hit-soft: oklch(0.32 0.06 152);
-    --blaze: oklch(0.83 0.15 85);
-    --blaze-soft: oklch(0.34 0.06 80);
-    --ice: oklch(0.78 0.11 235);
-    --warn: oklch(0.72 0.15 30);
-    --shadow: 0 1px 0 oklch(1 0 0 / 0.05) inset, 0 8px 28px oklch(0 0 0 / 0.35);
-    color-scheme: dark;
-  }
+  color-scheme: dark;
 }
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
@@ -348,6 +330,164 @@ body.gated .top .mark { visibility: hidden; }
 .skeleton { height: 220px; border-radius: 24px; background: linear-gradient(90deg, var(--surface), var(--bg-deep), var(--surface)); background-size: 200% 100%; animation: sk 1.4s linear infinite; }
 @keyframes sk { to { background-position: -200% 0; } }
 
+
+/* ---------- night arena layer: the logo's look on top of the layout above ---------- */
+body {
+  background:
+    radial-gradient(1px 1px at 12% 18%, oklch(1 0 0 / 0.55), transparent 60%),
+    radial-gradient(1px 1px at 78% 9%, oklch(1 0 0 / 0.45), transparent 60%),
+    radial-gradient(1.5px 1.5px at 64% 31%, oklch(1 0 0 / 0.35), transparent 60%),
+    radial-gradient(1px 1px at 33% 47%, oklch(1 0 0 / 0.4), transparent 60%),
+    radial-gradient(1px 1px at 88% 58%, oklch(1 0 0 / 0.35), transparent 60%),
+    radial-gradient(1.5px 1.5px at 22% 74%, oklch(1 0 0 / 0.3), transparent 60%),
+    radial-gradient(1px 1px at 52% 88%, oklch(1 0 0 / 0.35), transparent 60%),
+    radial-gradient(120% 60% at 50% -10%, oklch(0.32 0.08 250 / 0.9), transparent 60%),
+    radial-gradient(80% 50% at 100% 100%, oklch(0.26 0.06 270 / 0.7), transparent 70%),
+    var(--bg);
+  background-attachment: fixed;
+}
+.top { background: color-mix(in oklch, var(--bg-deep) 82%, transparent); border-bottom: 0; }
+/* the spiked collar: a strip of studs under the header */
+.top::after { content: ""; position: absolute; left: 0; right: 0; bottom: -7px; height: 7px; pointer-events: none;
+  background: conic-gradient(from 135deg at 50% 0, oklch(0.62 0.02 255) 0 90deg, transparent 0) 0 0 / 16px 7px repeat-x;
+  filter: drop-shadow(0 2px 2px oklch(0 0 0 / 0.5)); opacity: 0.7; }
+.top { position: sticky; }
+.top { box-shadow: inset 0 -2px 0 oklch(0.12 0.02 262), inset 0 -3px 0 color-mix(in oklch, var(--blaze) 55%, transparent); }
+.mark { background: var(--gold); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none; }
+.mark span { color: transparent; }
+.chip, .icon-btn { background: var(--surface); border-color: color-mix(in oklch, var(--ice) 28%, var(--line)); color: var(--ink); }
+
+/* section heads: the logo's gold ribbon */
+.sec-head h2 { display: inline-block; font: 900 15px/1 var(--display); letter-spacing: 0.16em; color: oklch(0.2 0.04 60);
+  background: var(--gold); padding: 7px 18px 6px; clip-path: polygon(0 0, 100% 0, calc(100% - 9px) 50%, 100% 100%, 0 100%, 9px 50%);
+  text-shadow: 0 1px 0 oklch(1 0 0 / 0.35); }
+.sec-head .note { color: var(--muted); }
+
+/* cards: night panels with an ice-blue rim */
+.you, .grid-card, .post, .chat-card, .next-card, .empty {
+  background: linear-gradient(180deg, var(--surface-hi), var(--surface)); border: 1px solid color-mix(in oklch, var(--ice) 22%, var(--line)); }
+.you { box-shadow: var(--shadow), 0 0 0 1px oklch(0 0 0 / 0.2), 0 0 40px -12px color-mix(in oklch, var(--ice) 45%, transparent); }
+.you-title h1 { background: linear-gradient(180deg, var(--ink), var(--ink-soft)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+/* a done goal: a blue diamond fill, like the logo's gems */
+.goal[aria-checked="true"] .box { background: linear-gradient(145deg, oklch(0.86 0.09 220), var(--hit) 55%, oklch(0.55 0.14 250)); border-color: oklch(0.86 0.09 220);
+  box-shadow: 0 0 14px -2px color-mix(in oklch, var(--hit) 70%, transparent); }
+.goal[aria-checked="true"] .box svg { stroke: oklch(0.15 0.03 260); }
+.goal:active { background: var(--surface-hi); }
+.ring .fill { stroke: var(--hit); filter: drop-shadow(0 0 4px color-mix(in oklch, var(--hit) 60%, transparent)); }
+
+/* dog tags: brushed steel */
+.tag { background: linear-gradient(160deg, oklch(0.38 0.02 255), oklch(0.27 0.02 258) 45%, oklch(0.33 0.02 255)); border-color: oklch(0.5 0.02 255); }
+.tag-name b { text-shadow: 0 1px 0 oklch(0 0 0 / 0.5); }
+.tag.me { border: 1.5px solid var(--blaze); box-shadow: var(--shadow), 0 0 22px -8px color-mix(in oklch, var(--blaze) 70%, transparent); }
+
+/* the pot: a gold plate */
+.pot { border: 2px solid transparent; background: linear-gradient(180deg, var(--surface-hi), var(--surface)) padding-box, var(--gold) border-box;
+  box-shadow: var(--shadow), 0 0 40px -14px color-mix(in oklch, var(--blaze) 70%, transparent); }
+.pot-amt { background: var(--gold); -webkit-background-clip: text; background-clip: text; color: transparent; font-size: 52px; font-weight: 900; }
+.pot-amt small { -webkit-text-fill-color: var(--muted); }
+.pot-rows li { padding: 8px 10px; border-radius: 12px; background: oklch(0 0 0 / 0.18); }
+.pot-rows .paid { color: var(--muted); }
+/* strikes: diamonds; a strike is a cracked red one */
+.strikes { display: inline-flex; align-items: center; gap: 5px; }
+.strikes i { width: 11px; height: 11px; border-radius: 2px; transform: rotate(45deg); margin-left: 3px; border: 1.5px solid var(--ice); background: color-mix(in oklch, var(--ice) 18%, transparent); }
+.strikes i.on { background: linear-gradient(135deg, var(--warn) 0 46%, oklch(0.15 0.02 260) 46% 54%, var(--warn) 54%); border-color: var(--warn);
+  box-shadow: 0 0 8px -1px color-mix(in oklch, var(--warn) 70%, transparent); }
+.out-chip.comeback { color: var(--blaze); }
+.pot-rows li.cb { color: var(--ink-soft); }
+.pot-rows li.cb b { text-decoration: none; }
+
+/* pardons */
+.pardons { margin-top: 14px; display: grid; gap: 12px; }
+.pd-block h3 { margin: 0 0 8px; font: 800 13px/1 var(--display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--blaze); }
+.pd-block ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.pd-block li { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 12px;
+  background: oklch(0 0 0 / 0.2); border: 1px solid var(--line); font-size: 14px; }
+.pd-block li.pardoned { opacity: 0.7; }
+.pd-what { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; }
+.pd-what small { display: block; color: var(--muted); font: 500 11px/1.3 var(--mono); margin-top: 4px; }
+.pd-act { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pd-act .mini-btn { min-height: 44px; min-width: 64px; }
+.pd-state { font: 500 11px/1.3 var(--mono); color: var(--muted); }
+.pd-state.ok { color: var(--hit); }
+.mini-btn.ghosty { background: transparent; }
+.mini-btn.on-no { background: color-mix(in oklch, var(--warn) 22%, var(--bg)); border-color: var(--warn); }
+
+/* help: tap-to-open explainers, everywhere something needs one */
+details.help { margin-top: 14px; border-top: 1px dashed var(--line); padding-top: 10px; }
+details.help summary { list-style: none; display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer;
+  font: 600 14px/1.2 var(--body); color: var(--ink-soft); }
+details.help summary::-webkit-details-marker { display: none; }
+details.help summary::after { content: "▾"; margin-left: auto; color: var(--muted); transition: transform 200ms var(--ease); }
+details.help[open] summary::after { transform: rotate(180deg); }
+.help-q { width: 24px; height: 24px; flex: none; display: grid; place-items: center; border-radius: 50%; font: 800 13px/1 var(--display);
+  color: oklch(0.2 0.04 60); background: var(--gold); }
+details.help ul { margin: 6px 0 4px; padding-left: 20px; display: grid; gap: 8px; font-size: 14px; color: var(--ink-soft); line-height: 1.45; }
+
+/* controls */
+.btn { background: var(--ink); color: var(--bg-deep); }
+.btn.blaze { background: var(--gold); color: oklch(0.2 0.04 60); box-shadow: 0 6px 20px -6px color-mix(in oklch, var(--blaze) 70%, transparent), inset 0 1px 0 oklch(1 0 0 / 0.45); }
+.btn.ghost { color: var(--ink); border-color: var(--line); }
+.mini-btn { background: var(--surface-hi); border-color: var(--line); color: var(--ink); }
+.field input, .gfields input, select.cad, .chat-form input, .field textarea { background: var(--bg-deep); border-color: var(--line); color: var(--ink); }
+.toast { background: var(--gold); color: oklch(0.2 0.04 60); box-shadow: 0 10px 30px oklch(0 0 0 / 0.5); }
+dialog.sheet { background: linear-gradient(180deg, var(--surface-hi), var(--surface) 140px); box-shadow: 0 -2px 0 color-mix(in oklch, var(--blaze) 60%, transparent), 0 -10px 40px oklch(0 0 0 / 0.6); }
+dialog.sheet::backdrop { background: oklch(0.08 0.02 262 / 0.65); }
+.sheet h2 { background: var(--gold); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.badge { color: oklch(0.15 0.03 260); background: var(--hit); }
+.live-chip { color: oklch(0.2 0.04 60); background: var(--gold); }
+.post li.top .rank { color: var(--blaze); text-shadow: 0 0 10px color-mix(in oklch, var(--blaze) 60%, transparent); }
+.cell { background: oklch(0.13 0.025 262); }
+.cell.l1 { background: color-mix(in srgb, var(--hit) 22%, var(--bg-deep)); }
+.cell.l2 { background: color-mix(in srgb, var(--hit) 45%, var(--bg-deep)); }
+.cell.l3 { background: color-mix(in srgb, var(--hit) 70%, var(--bg-deep)); }
+.cell.l4 { background: linear-gradient(145deg, oklch(0.86 0.09 220), var(--hit)); }
+.demo-banner { background: var(--blaze-soft); color: var(--ink); border: 1px solid color-mix(in oklch, var(--blaze) 40%, transparent); }
+.brand-hero { filter: drop-shadow(0 18px 40px color-mix(in srgb, var(--ice) 40%, transparent)); }
+.msg.mine { background: var(--blaze-soft); }
+.msg { background: var(--surface-hi); }
+.gate .big span { background: var(--gold); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+
+/* callouts, quick links, rules, help body */
+.callout { border-radius: var(--r); padding: 16px; border: 1.5px solid color-mix(in oklch, var(--blaze) 55%, transparent);
+  background: linear-gradient(180deg, color-mix(in oklch, var(--blaze) 14%, var(--surface-hi)), var(--surface)); box-shadow: var(--shadow); }
+.callout h2 { margin: 0 0 8px; font: 900 22px/1 var(--display); text-transform: uppercase; letter-spacing: 0.04em;
+  background: var(--gold); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.callout p { margin: 0 0 8px; color: var(--ink-soft); font-size: 15px; }
+.steps { margin: 0; padding-left: 22px; display: grid; gap: 8px; font-size: 15px; color: var(--ink); line-height: 1.4; }
+.steps li::marker { color: var(--blaze); font-weight: 700; }
+.callout-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.callout-actions .mini-btn { min-height: 44px; }
+.quick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: -8px; }
+.quick-btn { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; border-radius: 14px; border: 1px solid color-mix(in oklch, var(--blaze) 45%, var(--line));
+  background: var(--surface); color: var(--ink); font: 800 15px/1 var(--display); letter-spacing: 0.1em; text-transform: uppercase; }
+.quick-btn span { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: var(--gold); color: oklch(0.2 0.04 60); font: 800 13px/1 var(--display); }
+.rule { border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; margin-bottom: 12px; background: oklch(0 0 0 / 0.14); }
+.rule h3 { margin: 0 0 8px; font: 900 15px/1 var(--display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--blaze); }
+.rule ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 15px; color: var(--ink-soft); line-height: 1.45; }
+.rule.house { border-color: color-mix(in oklch, var(--blaze) 50%, var(--line)); }
+.house-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.5; }
+.help-body { padding: 0 2px 6px 34px; color: var(--ink-soft); font-size: 15px; line-height: 1.45; }
+.help-body p { margin: 0 0 8px; }
+#sheetBody details.help { margin-top: 0; }
+.invite-text { white-space: pre-wrap; font: 400 13px/1.45 var(--mono); background: var(--bg-deep); border: 1px solid var(--line); border-radius: 12px; padding: 12px; user-select: all; }
+.field textarea { border-radius: 14px; border: 1.5px solid var(--line); padding: 12px 14px; font: 16px/1.4 var(--body); width: 100%; min-width: 0; resize: vertical; }
+
+/* dark color-scheme widens Chrome's native date field past its grid cell; pin it to the cell */
+input[type="date"] { -webkit-appearance: none; appearance: none; min-width: 0; max-width: 100%; display: block; }
+
+/* narrow phones: the badge already says Alpha Pack; drop the wordmark so the chip and buttons fit */
+@media (max-width: 440px) { .top .mark { display: none; } .top .wrap { gap: 8px; } }
+
+/* settling */
+.settle { margin: 14px 0 0; padding: 12px; border-radius: 12px; background: oklch(0 0 0 / 0.2); border: 1px dashed color-mix(in oklch, var(--blaze) 45%, var(--line)); font-size: 14px; color: var(--ink-soft); display: grid; gap: 10px; }
+.settle p { margin: 0; }
+.settle.done { border-style: solid; }
+.payouts { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.payouts li { display: flex; justify-content: space-between; gap: 10px; }
+.payouts b { font: 800 18px/1 var(--display); color: var(--blaze); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
 }
@@ -358,6 +498,9 @@ body.gated .top .mark { visibility: hidden; }
   <div class="wrap">
     <div class="mark-wrap"><img src="logo-200.png" alt="" width="64" height="52"><p class="mark">Alpha <span>Pack</span></p></div>
     <button class="chip" id="dayChip" type="button" aria-label="All challenges" hidden></button>
+    <button class="icon-btn" id="helpBtn" type="button" aria-label="How it works" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5V14"/><path d="M12 17.2v.1"/></svg>
+    </button>
     <button class="icon-btn" id="menuBtn" type="button" aria-label="Challenge settings" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
     </button>

@@ -85,6 +85,7 @@ function renderInner() {
   const s = state;
   $("#dayChip").hidden = true;
   $("#menuBtn").hidden = true;
+  $("#helpBtn").hidden = !s.backend;
   if (!s.backend) return renderNoConfig();
   if (s.user === null) return renderSignIn();
   if (!s.ms) return renderLoading();
@@ -107,6 +108,9 @@ function renderInner() {
     state.chId ? h("div", { class: "viewing", role: "note" }, h("span", {}, "Viewing ", h("b", {}, ch.name)),
       h("button", { class: "link-btn", type: "button", onclick: () => pick(null) }, "Back to current")) : null,
     h("img", { class: "brand-hero", src: "logo-hero.webp", alt: "Alpha Pack", width: "720", height: "582" }),
+    welcomeCard(),
+    installCard(),
+    quickLinks(),
     t < ch.start ? renderUpcoming(ch) : t > ch.end ? renderFinished(ch) : renderYou(ch),
     state.chId ? null : renderUpNext(ch),
     renderPot(ch),
@@ -184,8 +188,9 @@ function renderJoin() {
 function renderNoChallenge() {
   app.replaceChildren(demoBanner() || "", h("section", { class: "gate" },
     h("h1", { class: "big" }, "No", h("span", {}, "challenge yet")),
-    h("p", {}, "Set the first one: a name, the dates, and the goals everybody ticks each day."),
-    h("button", { class: "btn blaze", type: "button", onclick: openCreate }, "Set up a challenge")),
+    state.ms?.owner ? h("p", {}, "Set the first one: a name, the dates, and the goals everybody ticks each day.")
+      : h("p", {}, "The owner sets it up. It'll show here the moment they do."),
+    state.ms?.owner ? h("button", { class: "btn blaze", type: "button", onclick: openCreate }, "Set up a challenge") : null),
   renderFoot());
 }
 
@@ -323,7 +328,7 @@ function renderFinished(ch) {
     h("ol", {}, totals.map((r, i) => h("li", { class: i === 0 ? "top" : null }, h("span", { class: "rank" }, String(i + 1)),
       h("div", {}, h("span", { class: "nm" }, r.name), r.perfect ? h("span", { class: "badge" }, `${r.perfect} perfect`) : null, h("div", { class: "bar" }, h("i", { style: `width:${r.pct}%` }))),
       h("span", { class: "pct" }, `${r.pct}%`)))),
-    h("div", { class: "sheet-actions" }, h("button", { class: "btn blaze", type: "button", onclick: openCreate }, "Start the next challenge")));
+    state.ms?.owner ? h("div", { class: "sheet-actions" }, h("button", { class: "btn blaze", type: "button", onclick: openCreate }, "Start the next challenge")) : null);
 }
 
 // Challenges set up to start after the one on screen. Tap to see goals, set your target, or (owner) set it up.
@@ -374,22 +379,112 @@ function openChallenges() {
 const money = (n) => "$" + (Number.isInteger(n) ? String(n) : n.toFixed(2));
 
 // The pot: play money. Everyone on the board is in for the buy-in; strikes knock people out; survivors split it.
+// Out at the limit with a comeback on: finish without another strike and get the comeback back (never a share).
+function strikeLabel(ch, s) {
+  if (s.kind === "week") return `Week ending ${fmtDay(s.date)} · ${ch.goals?.[s.goalId]?.text || "a weekly goal"}`;
+  return `${fmtDay(s.date)} · not every daily goal done`;
+}
+function voteLine(pd) { return `${pd.yes} of ${pd.need} yes${pd.no ? ` · ${pd.no} no` : ""}`; }
+
 function renderPot(ch) {
   const st = L.potStatus(state.players, ch, now());
   if (!st) return null;
   const strikeDots = (n) => h("span", { class: "strikes", "aria-label": `${n} of ${st.limit} strikes` }, `${n}/${st.limit}`,
     ...Array.from({ length: st.limit }, (_, i) => h("i", { class: i < n ? "on" : "" })));
   const each = st.final
-    ? (st.refund ? ["Nobody made it", h("small", {}, `Everyone gets their ${money(st.buyIn)} back`)] : [`${money(st.share)} each`, h("small", {}, `${st.alive} made it to the end`)])
+    ? (st.refund ? ["Nobody made it", h("small", {}, `Everyone gets their ${money(st.buyIn)} back`)] : [`${money(st.share)} each`, h("small", {}, `${st.alive} made it to the end` + (st.comebacks ? ` · ${st.comebacks} comeback${st.comebacks === 1 ? "" : "s"} get ${money(st.comeback)}` : ""))])
     : (st.refund ? ["Everyone's out", h("small", {}, `If it ended now, everyone gets ${money(st.buyIn)} back`)] : [`${money(st.share)} each`, h("small", {}, `if it ended now · ${st.alive} still in`)]);
+  const chip = (r) => !r.out ? strikeDots(r.strikes)
+    : r.comeback ? h("span", { class: "out-chip comeback", title: `Finish without another strike to get ${money(st.comeback)} back` }, "COMEBACK")
+    : h("span", { class: "out-chip" }, "OUT");
   return h("section", { "aria-labelledby": "potH" },
-    h("div", { class: "sec-head" }, h("h2", { id: "potH" }, st.final ? "The Pot · final" : "The Pot"), h("span", { class: "note" }, `${money(st.buyIn)} each · out at ${st.limit} strikes`)),
+    h("div", { class: "sec-head" }, h("h2", { id: "potH" }, st.settled ? "The Pot · settled" : st.final ? "The Pot · final" : "The Pot"),
+      h("span", { class: "note" }, `${money(st.buyIn)} in · out at ${st.limit}` + (st.comeback ? ` · comeback ${money(st.comeback)}` : ""))),
     h("div", { class: "pot" },
       h("div", { class: "pot-top" }, h("div", { class: "pot-amt" }, money(st.pot), h("small", {}, `${st.paid} of ${st.rows.length} paid`)), h("div", { class: "pot-each" }, ...each)),
-      h("ol", { class: "pot-rows" }, st.rows.map((r) => h("li", { class: r.out ? "out" : null },
-        h("span", {}, h("b", {}, r.uid === state.user.uid ? "You" : r.name), r.paid ? h("small", { style: "color:var(--muted)" }, " · paid") : null),
-        r.out ? h("span", { class: "out-chip" }, "OUT") : strikeDots(r.strikes)))),
-      h("p", { class: "seg-note" }, "A strike is a day without every daily goal done, or a weekly goal missed when its week ends. A day counts once it locks at noon the next day. Days off never count. Play money: settle up in person.")));
+      h("ol", { class: "pot-rows" }, st.rows.map((r) => h("li", { class: r.out ? (r.comeback ? "out cb" : "out") : null },
+        h("span", {}, h("b", {}, r.uid === state.user.uid ? "You" : r.name), r.paid ? h("small", { class: "paid" }, " · paid") : null),
+        chip(r)))),
+      renderPardons(ch, st),
+      settleBlock(ch, st),
+      help("How the pot works", [
+        `Everyone on the board is in for ${money(st.buyIn)}. Pay whoever's holding the money. The app never touches it.`,
+        "A strike is a day you didn't finish every daily goal, or a weekly goal you came up short on. A day counts at noon the next day, so you have the morning to fix your ticks. Days off never count.",
+        `${st.limit} strike${st.limit === 1 ? "" : "s"} and you're out. The players still in split the pot at the end. If nobody makes it, everyone gets their money back.`,
+        st.comeback ? `Comeback: once you're out, keep going. Finish without another strike and you get ${money(st.comeback)} back. You can't win the pot that way, but it cuts your loss.` : null,
+        "Pardon: had a real reason? Ask for a pardon on that strike. If more than half of the other players vote yes, it's wiped. Votes stay open until the owner settles the pot.",
+        "Settling: after the last day locks, the owner settles the pot. That locks every payout for good.",
+      ])));
+}
+
+// Settling: the owner freezes the payouts once the last day locks. Before that, everyone sees it's pending.
+function settleBlock(ch, st) {
+  const owner = !!state.ms?.owner;
+  if (st.settled) {
+    const me = st.rows.find((r) => r.uid === state.user.uid);
+    return h("div", { class: "settle done" },
+      h("p", {}, h("b", {}, "Settled. Payouts are locked."), me ? ` You get ${money(me.payout)}.` : ""),
+      h("ul", { class: "payouts" }, st.rows.map((r) => h("li", {}, h("span", {}, r.uid === state.user.uid ? "You" : r.name), h("b", {}, money(r.payout))))),
+      owner ? h("button", { class: "link-btn", type: "button", onclick: async () => {
+        if (state.confirmUnsettle !== ch.id) { state.confirmUnsettle = ch.id; render(); return; }
+        state.confirmUnsettle = null;
+        try { await state.backend.mergeChallenge(ch.id, L.unsettlePatch().patch); toast("Unlocked. Votes are open again."); } catch (e) { console.error(e); toast("That didn't save."); }
+      } }, state.confirmUnsettle === ch.id ? "Tap again to unlock it" : "Unlock (fix a mistake)") : null);
+  }
+  if (!st.final) return null;
+  if (!owner) return h("p", { class: "settle" }, "It's over. Pardon votes stay open until the owner settles the pot, then payouts lock.");
+  return h("div", { class: "settle" },
+    h("p", {}, "It's over. Give everyone a chance to vote on last-day pardons, then settle. Settling locks every payout."),
+    h("button", { class: "btn blaze", type: "button", onclick: async () => {
+      if (state.confirmSettle !== ch.id) { state.confirmSettle = ch.id; render(); return; }
+      state.confirmSettle = null;
+      const r = L.settlePatch(st, now());
+      if (r.error) return toast(r.error);
+      try { await state.backend.mergeChallenge(ch.id, r.patch); toast("Settled. Payouts are locked."); } catch (e) { console.error(e); toast("That didn't save."); }
+    } }, state.confirmSettle === ch.id ? "Tap again to lock the payouts" : "Settle the pot"));
+}
+
+// Pardons: ask on your own strikes; vote on everyone else's asks. Closed once the challenge is final.
+function renderPardons(ch, st) {
+  const meRow = st.rows.find((r) => r.uid === state.user.uid);
+  const open = !st.settled; // votes run past the last day, until the owner settles
+  const mine = (meRow?.list || []).map((s) => {
+    const pd = s.pardon;
+    const status = pd.pardoned ? h("span", { class: "pd-state ok" }, "Pardoned")
+      : pd.voters === 0 ? h("span", { class: "pd-state" }, "Nobody else to vote")
+      : pd.asked ? h("span", { class: "pd-state" }, voteLine(pd)) : null;
+    const btn = !open || pd.pardoned || pd.voters === 0 ? null : h("button", { class: "mini-btn" + (pd.asked ? " ghosty" : ""), type: "button", onclick: async () => {
+      try { await state.backend.mergePlayer(state.user.uid, L.appealPatch(pd.key, !pd.asked).patch); toast(pd.asked ? "Ask taken back." : "Asked. The others can vote now."); }
+      catch (e) { console.error(e); toast("That didn't save."); }
+    } }, pd.asked ? "Take back" : "Ask for a pardon");
+    return h("li", { class: pd.pardoned ? "pardoned" : null }, h("span", { class: "pd-what" }, strikeLabel(ch, s)), h("span", { class: "pd-act" }, status, btn));
+  });
+  const myVotes = me()?.votes || {};
+  const asks = [];
+  st.rows.filter((r) => r.uid !== state.user.uid).forEach((r) => r.list.forEach((s) => {
+    if (s.pardon.asked && !s.pardon.pardoned) asks.push({ r, s });
+  }));
+  const voteBtns = ({ s }) => {
+    const v = myVotes[s.pardon.key];
+    const cast = (yes) => async () => {
+      try { await state.backend.mergePlayer(state.user.uid, L.votePatch(s.pardon.key, yes).patch); toast(yes ? "Voted yes." : "Voted no."); }
+      catch (e) { console.error(e); toast("That didn't save."); }
+    };
+    return h("span", { class: "pd-act" },
+      h("button", { class: "mini-btn" + (v === true ? " on" : ""), type: "button", "aria-pressed": String(v === true), disabled: !open, onclick: cast(true) }, "Yes"),
+      h("button", { class: "mini-btn" + (v === false ? " on-no" : ""), type: "button", "aria-pressed": String(v === false), disabled: !open, onclick: cast(false) }, "No"));
+  };
+  if (!mine.length && !asks.length) return null;
+  return h("div", { class: "pardons" },
+    asks.length ? h("div", { class: "pd-block" }, h("h3", {}, open ? "Vote on a pardon" : "Pardon asks"),
+      h("ul", {}, asks.map((a) => h("li", {}, h("span", { class: "pd-what" }, h("b", {}, a.r.name), ` asks: ${strikeLabel(ch, a.s)}`, h("small", {}, voteLine(a.s.pardon))), voteBtns(a))))) : null,
+    mine.length ? h("div", { class: "pd-block" }, h("h3", {}, "Your strikes"), h("ul", {}, mine)) : null);
+}
+
+// A tap-to-open explainer. Plain words, one idea per line.
+function help(title, lines) {
+  return h("details", { class: "help" }, h("summary", {}, h("span", { class: "help-q", "aria-hidden": "true" }, "?"), title),
+    h("ul", {}, lines.filter(Boolean).map((l) => h("li", {}, l))));
 }
 
 function renderPack(ch) {
@@ -410,7 +505,7 @@ function renderPack(ch) {
     return h("article", { class: "tag" + (isMe ? " me" : "") },
       h("button", { class: "tag-btn", type: "button", "aria-expanded": String(open), "aria-controls": detailId, onclick: () => { open ? state.expanded.delete(uid) : state.expanded.add(uid); render(); } },
         h("div", { class: "tag-row" },
-          h("div", { class: "tag-name" }, h("b", {}, p.name || "Player"), h("span", {}, potRow?.out ? (isMe ? "You · out of the pot" : "Out of the pot") : isMe ? "You" : off ? "Day off" : ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : s.hit ? `${s.of - s.hit} to go today` : "Nothing ticked yet today")),
+          h("div", { class: "tag-name" }, h("b", {}, p.name || "Player"), h("span", {}, potRow?.out ? (potRow.comeback ? (isMe ? "You · on a comeback" : "On a comeback") : isMe ? "You · out of the pot" : "Out of the pot") : isMe ? "You" : off ? "Day off" : ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : s.hit ? `${s.of - s.hit} to go today` : "Nothing ticked yet today")),
           h("div", { class: "tag-score" }, off ? "Off" : `${s.hit}/${s.of}`, h("small", {}, "today"))),
         h("div", { class: "pips", "aria-hidden": "true" }, goals.map((g) => h("span", { class: "pip" + (L.isDone(p, date, g.id) ? " on" : "") })),
           weekly.map((g) => { const pr = L.weekProgress(p, ch, g, date); return h("span", { class: "wbar" + (pr.met ? " met" : "") }, h("i", { style: `width:${pr.need ? Math.min(100, Math.round(pr.done / pr.need * 100)) : 0}%` })); }))),
@@ -458,40 +553,37 @@ function renderGrid(ch) {
 }
 
 function boardPost(ch, r, live) {
-  const redo = !live && state.ms?.owner ? h("button", { class: "mini-btn", type: "button", style: "min-height:44px;margin-top:10px", onclick: async () => {
-    if (state.confirmRedo !== r.date) { state.confirmRedo = r.date; render(); return; }
-    state.confirmRedo = null;
-    try {
-      await state.backend.replaceResult(L.resultId(r.date), L.buildResult(state.players, ch, r.date, now())); // one write: never a gap
-      toast(`${fmtDay(r.date)} re-posted from today's ticks.`);
-    } catch (e) { console.error(e); toast("That didn't save."); }
-  } }, state.confirmRedo === r.date ? "Tap again to re-post it" : "Redo this day") : null;
   return h("article", { class: "post" + (live ? " live" : "") },
     h("h3", {}, h("span", {}, fmtDay(r.date), live ? h("span", { class: "live-chip" }, "Live") : null),
       h("small", {}, live ? "Open · still ticking" : `Day ${L.dayNumber(ch, r.date)}`)),
     h("ol", {}, (r.rows || []).map((row, i) => h("li", { class: i === 0 && row.pct > 0 ? "top" : null },
       h("span", { class: "rank" }, String(i + 1)),
       h("div", {}, h("span", { class: "nm" }, row.name), row.perfect ? h("span", { class: "badge" }, "Perfect") : null, h("div", { class: "bar" }, h("i", { style: `width:${row.pct}%` }))),
-      h("span", { class: "pct" }, row.of ? `${row.hit}/${row.of}` : "", row.wkOf ? h("small", { class: "wkn" }, `wk ${row.wkMet}/${row.wkOf}`) : null)))), redo);
+      h("span", { class: "pct" }, row.of ? `${row.hit}/${row.of}` : "", row.wkOf ? h("small", { class: "wkn" }, `wk ${row.wkMet}/${row.wkOf}`) : null)))));
 }
 
-// Days still open (today, and yesterday until noon) show live from everyone's ticks; closed days are the posted docs.
+// Every day on the board is scored from everyone's ticks, so an owner's tick fix shows by itself.
 function renderBoard(ch) {
   const t = today();
-  const all = Object.values(state.results || {}).filter((r) => r.challengeId === ch.id && !L.isSkip(ch, r.date)).sort((a, b) => (a.date < b.date ? 1 : -1));
-  const posted = new Set(all.map((r) => r.date));
-  const live = L.editableDates(ch, now()).filter((d) => !posted.has(d) && !L.isSkip(ch, d))
-    .map((d) => L.buildResult(state.players, ch, d, now()));
-  const posts = all.slice(0, state.boardAll ? 60 : 3);
+  // Every final day of this challenge, newest first, scored from the ticks. Results docs aren't read at all, so a post
+  // made under another (copycat) challenge, or with made-up rows, can't hide or fake a day.
+  const finals = [];
+  for (let d = (t < ch.end ? t : ch.end); d >= ch.start && finals.length < 400; d = L.addDays(d, -1)) {
+    if (L.isFinal(d, now(), ch) && !L.isSkip(ch, d)) finals.push(d);
+  }
+  const live = L.editableDates(ch, now()).filter((d) => !L.isSkip(ch, d)).map((d) => L.buildResult(state.players, ch, d, now()));
+  const limit = state.boardLimit || 3;
+  const shown = finals.slice(0, limit);
   const head = h("div", { class: "sec-head" }, h("h2", { id: "boardH" }, "Daily Board"), h("span", { class: "note" }, "Live all day · locks at noon next day"));
-  if (!live.length && !posts.length) {
+  if (!live.length && !shown.length) {
     const msg = t < ch.start ? [h("b", {}, `Scores start ${fmtDay(ch.start, { weekday: "long" })}. `), "The board goes live the moment anyone ticks."]
       : [h("b", {}, "Nothing to show yet. "), "The board fills in as the pack ticks."];
     return h("section", { "aria-labelledby": "boardH" }, head, h("p", { class: "empty" }, ...msg));
   }
+  const more = finals.length - shown.length;
   return h("section", { "aria-labelledby": "boardH" }, head, h("div", { class: "board" },
-    live.map((r) => boardPost(ch, r, true)), posts.map((r) => boardPost(ch, r, false)),
-    all.length > posts.length ? h("button", { class: "mini-btn more", type: "button", onclick: () => { state.boardAll = true; render(); } }, `Show ${all.length - posts.length} older`) : null));
+    live.map((r) => boardPost(ch, r, true)), shown.map((d) => boardPost(ch, L.buildResult(state.players, ch, d, now()), false)),
+    more > 0 ? h("button", { class: "mini-btn more", type: "button", onclick: () => { state.boardLimit = limit + 30; render(); } }, `Show ${Math.min(more, 30)} older`) : null));
 }
 
 function renderFoot() {
@@ -573,7 +665,7 @@ function datesField(ch) {
         toast(L.catchUpOpen(moved, now()) ? `Starts ${fmtDay(start.value, { weekday: "long" })} now. Everyone can catch up until noon tomorrow.` : "Dates saved.");
       } catch (e2) { console.error(e2); toast("That didn't save."); }
     } }, "Save dates"),
-    h("p", { class: "seg-note" }, "Set the start up to a week back today, and everyone can tick those days until noon tomorrow."));
+    h("p", { class: "seg-note" }, "Start today or later. Once a day locks at noon the next day, only you can change its ticks."));
 }
 
 // Owner only: everything about the challenge itself, at the top of the menu.
@@ -595,6 +687,7 @@ function ownerControls(ch) {
     datesField(ch),
     daysOffField(ch),
     potField(ch),
+    houseRulesField(ch),
     end.error ? null : h("div", { class: "field" },
       h("button", { class: "mini-btn danger", type: "button", style: "min-height:44px", onclick: async () => {
         if (!sure) { state.confirmEnd = ch.id; openSettings(state._settingsId); return; }
@@ -621,13 +714,16 @@ function potField(ch) {
   const lim = h("select", { id: "potStrikes", class: "cad", "aria-label": "Out at how many strikes" },
     Array.from({ length: 20 }, (_, i) => h("option", { value: String(i + 1) }, `Out at ${i + 1} strike${i ? "s" : ""}`)));
   lim.value = String(pot.strikes || 3);
+  const back = h("input", { id: "potComeback", type: "number", inputmode: "numeric", min: "0", max: "10000", step: "1", value: pot.comeback || "", placeholder: "0 = off", "aria-label": "Comeback, dollars back" });
   const ids = Object.keys(state.players || {}).sort((a, b) => (state.players[a].name || "").localeCompare(state.players[b].name || ""));
   return h("div", { class: "field" }, h("label", { for: "potBuyIn" }, "The pot"),
     h("div", { class: "row2" }, h("div", {}, h("label", { class: "tlabel", for: "potBuyIn" }, "Buy-in ($)"), buy), h("div", {}, h("label", { class: "tlabel", for: "potStrikes" }, "Strikes"), lim)),
+    h("div", { style: "margin-top:8px" }, h("label", { class: "tlabel", for: "potComeback" }, "Comeback ($ back)"), back),
     h("button", { class: "mini-btn", type: "button", style: "min-height:44px;margin-top:8px", onclick: async () => {
-      const r = L.potPatch(buy.value === "" ? 0 : buy.value, lim.value);
+      const r = L.potPatch(buy.value === "" ? 0 : buy.value, lim.value, back.value);
       if (r.error) return toast(r.error);
-      try { await state.backend.mergeChallenge(ch.id, r.patch); toast(r.patch.pot.buyIn ? `Pot on: ${money(r.patch.pot.buyIn)} each, out at ${r.patch.pot.strikes}.` : "Pot off."); }
+      const pp = r.patch.pot;
+      try { await state.backend.mergeChallenge(ch.id, r.patch); toast(pp.buyIn ? `Pot on: ${money(pp.buyIn)} each, out at ${pp.strikes}` + (pp.comeback ? `, comeback ${money(pp.comeback)}.` : ".") : "Pot off."); }
       catch (e) { console.error(e); toast("That didn't save."); }
     } }, "Save pot"),
     pot.buyIn > 0 ? h("ul", { class: "off-list" }, ids.map((uid) => {
@@ -637,7 +733,7 @@ function potField(ch) {
           try { await state.backend.mergeChallenge(ch.id, L.paidPatch(uid, !paid).patch); } catch (e) { console.error(e); toast("That didn't save."); }
         } }, paid ? "✓ Paid" : "Mark paid"));
     })) : null,
-    h("p", { class: "seg-note" }, "Play money. Everyone on the board is in. Survivors split the pot evenly at the end; if nobody makes it, everyone gets their buy-in back. 0 turns it off."));
+    h("p", { class: "seg-note" }, "Play money. Everyone on the board is in. Survivors split the pot evenly at the end; if nobody makes it, everyone gets their buy-in back. Comeback: what someone who's out gets back if they finish without another strike (up to the buy-in; 0 = off). Buy-in 0 turns the pot off."));
 }
 
 // Owner only: days off. Nothing counts on them for anyone; streaks jump them; weekly goals need one day fewer.
@@ -717,6 +813,7 @@ function openSheet(build) {
 }
 sheet.addEventListener("click", (e) => { if (e.target === sheet) sheet.close(); });
 $("#menuBtn").addEventListener("click", openSettings);
+$("#helpBtn").addEventListener("click", () => openHelp());
 $("#dayChip").addEventListener("click", openChallenges);
 
 function closeBtn() { return h("button", { class: "btn ghost", type: "button", onclick: () => sheet.close() }, "Done"); }
@@ -739,7 +836,7 @@ function openCreate() {
     const keep = () => { state._draftName = name.value; state._draftStart = start.value; state._draftEnd = end.value; };
     return [
       h("h2", { id: "sheetTitle" }, "New challenge"),
-      h("p", { class: "sub" }, "Goals lock when it starts. After that you can add a goal or close one, and everyone sets their own target. Start up to a week back and everyone can catch up those days until noon tomorrow."),
+      h("p", { class: "sub" }, "Goals lock when it starts. After that only the owner changes goals, and everyone sets their own target. Start today or later."),
       h("div", { class: "field" }, h("label", { for: "chName" }, "Name"), name, err("name")),
       h("div", { class: "row2" }, h("div", { class: "field" }, h("label", { for: "chStart" }, "Starts"), start, err("start")), h("div", { class: "field" }, h("label", { for: "chEnd" }, "Ends"), end, err("end"))),
       h("div", { class: "field", style: "margin-bottom:6px" }, h("label", {}, "Daily goals"), err("goals")), list,
@@ -772,7 +869,7 @@ function openCreate() {
 function settingsChallenge() { return (state._settingsId && challengeList().find((c) => c.id === state._settingsId)) || current(); }
 function openSettings(id) {
   state._settingsId = typeof id === "string" ? id : null; // called from click handlers too: an event is not an id
-  if (!settingsChallenge()) return openCreate();
+  if (!settingsChallenge()) return state.ms?.owner ? openCreate() : toast("No challenge yet. The owner sets it up.");
   let confirmClose = null;
   const build = () => {
     const ch = settingsChallenge(); // re-read on every rebuild: the shared doc changes under the open sheet
@@ -804,7 +901,7 @@ function openSettings(id) {
               try { await state.backend.mergeChallenge(ch.id, r.patch); toast("Saved."); } catch (e2) { console.error(e2); toast("That didn't save."); }
             }, `How often for ${g.text}`)),
         h("div", { class: "field", style: "margin:0" }, h("label", { class: "tlabel", for: `tgt-${g.id}` }, "Your target"), target),
-        closed ? null : h("div", {}, h("button", { class: "mini-btn danger", type: "button", onclick: async () => {
+        closed || locked ? null : h("div", {}, h("button", { class: "mini-btn danger", type: "button", onclick: async () => {
           if (confirmClose !== g.id) { confirmClose = g.id; openSheet(build); return; }
           const r = L.closeGoalPatch(ch, g.id, t);
           if (r.error) return toast(r.error);
@@ -819,16 +916,16 @@ function openSettings(id) {
       h("p", { class: "sub" }, `${fmtDay(ch.start, { month: "short", day: "numeric" })} – ${fmtDay(ch.end, { month: "short", day: "numeric", year: "numeric" })}`),
       owner ? ownerControls(ch) : null,
       owner && L.isLocked(ch, t) ? h("div", { class: "lockline" }, "You're the owner, so you can change anything here. Edits apply to everyone, and past days re-score on the live screens. Days already posted to the board keep their post.") : null,
-      locked ? (() => { const l = h("div", { class: "lockline" }); l.innerHTML = SVG.lock; l.append("Goals are locked in. You can add a goal from today, or close one: it stops counting today and its history stays."); return l; })() : null,
+      locked ? (() => { const l = h("div", { class: "lockline" }); l.innerHTML = SVG.lock; l.append("Goals are locked once it starts, because they're scored. Only the owner can add or close one, so ask in Trash Talk. You can still change your own target."); return l; })() : null,
       h("div", { style: "display:grid;gap:10px;margin-bottom:16px" }, items),
-      h("div", { class: "field" }, h("label", { for: "addGoal" }, "Add a goal"), addInput, h("div", { style: "display:flex;gap:8px" }, addSel,
+      locked ? null : h("div", { class: "field" }, h("label", { for: "addGoal" }, "Add a goal"), addInput, h("div", { style: "display:flex;gap:8px" }, addSel,
         h("button", { class: "mini-btn", type: "button", style: "min-height:50px;flex:none", onclick: async () => {
           const r = L.addGoalPatch(ch, addInput.value, t, Date.now(), addCad);
           if (r.error) return toast(r.error);
           try { await state.backend.mergeChallenge(ch.id, r.patch); toast(locked ? "Goal added. It counts from today." : "Goal added."); } catch (e2) { console.error(e2); toast("That didn't save."); }
         } }, "Add"))),
       owner ? recoverField(ch) : null,
-      h("div", { class: "sheet-actions" }, closeBtn(), t > ch.end && !owner ? h("button", { class: "btn blaze", type: "button", onclick: openCreate }, "New challenge") : null),
+      h("div", { class: "sheet-actions" }, closeBtn()),
     ];
   };
   openSheet(build);
@@ -855,6 +952,8 @@ function openMembers() {
           if (emails.includes(em)) return toast("Already in.");
           try { await state.backend.setMembers(emails.concat(em)); toast("Added. Send them the link."); openSheet(build); } catch (e) { console.error(e); toast("That didn't save."); }
         } }, "Add"))),
+      h("div", { class: "field" }, h("button", { class: "btn blaze", type: "button", onclick: sendInvite }, "Send the invite"),
+        h("p", { class: "seg-note" }, "Opens your share sheet with a ready message: the link, how to sign in, and how to put it on their home screen (iPhone and Android). Add their email above first.")),
       h("div", { class: "sheet-actions" }, h("button", { class: "btn ghost", type: "button", onclick: () => openSettings(state._settingsId) }, "Back")),
     ];
   };
@@ -862,8 +961,169 @@ function openMembers() {
 }
 sheet.addEventListener("close", () => { state._sheetIs = null; });
 
-// ---------- daily board posting (idempotent: results/<date> is create-only) ----------
+// ---------- help, rules, invites, home screen ----------
+const appLink = () => location.origin + location.pathname;
+const phone = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) ? "ios"
+  : /Android/.test(navigator.userAgent) ? "android" : "other";
+const standalone = () => window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+const seen = (k) => { try { return localStorage.getItem("ap." + k) === "1"; } catch { return false; } };
+const markSeen = (k) => { try { localStorage.setItem("ap." + k, "1"); } catch { /* private mode: it shows again, harmless */ } };
+
+const STEPS = {
+  ios: ["Open the link in Safari.", "Tap the Share button (the square with the arrow pointing up).", "Scroll down and tap “Add to Home Screen”, then “Add”.", "Open Alpha Pack from your home screen from now on."],
+  android: ["Open the link in Chrome.", "Tap the ⋮ menu, top right.", "Tap “Add to Home screen” (or “Install app”), then “Install”.", "Open Alpha Pack from your home screen from now on."],
+};
+function stepsList(kind) { return h("ol", { class: "steps" }, STEPS[kind].map((x) => h("li", {}, x))); }
+
+// Shown once per phone, in the browser only: an installed app never sees it.
+function installCard() {
+  if (standalone() || seen("installDone") || state.backend?.mode === "demo" && !new URLSearchParams(location.search).has("install")) return null;
+  const kind = phone();
+  if (kind === "other") return null;
+  return h("section", { class: "callout", "aria-labelledby": "instH" },
+    h("h2", { id: "instH" }, "Put it on your home screen"),
+    h("p", {}, "It opens like an app, full screen, one tap from your home screen."),
+    stepsList(kind),
+    h("div", { class: "callout-actions" }, h("button", { class: "mini-btn", type: "button", onclick: () => { markSeen("installDone"); render(); } }, "Done, hide this")));
+}
+
+// Shown once after joining: the whole game in three lines.
+function welcomeCard() {
+  if (seen("welcomed")) return null;
+  return h("section", { class: "callout welcome", "aria-labelledby": "welH" },
+    h("h2", { id: "welH" }, "Welcome to the pack"),
+    h("ol", { class: "steps" },
+      h("li", {}, h("b", {}, "Tick your goals"), " every day. Tap a goal to check it off. You have until noon the next day to fix it."),
+      h("li", {}, h("b", {}, "Miss one and it's a strike."), " Too many strikes and you're out of the pot."),
+      h("li", {}, h("b", {}, "Talk trash"), " and watch the Daily Board. Everyone sees everyone.")),
+    h("div", { class: "callout-actions" },
+      h("button", { class: "mini-btn", type: "button", onclick: () => openRules() }, "Read the rules"),
+      h("button", { class: "mini-btn", type: "button", onclick: () => { markSeen("welcomed"); render(); } }, "Got it")));
+}
+
+function quickLinks() {
+  return h("nav", { class: "quick", "aria-label": "Rules and help" },
+    h("button", { class: "quick-btn", type: "button", onclick: () => openRules() }, h("span", { "aria-hidden": "true" }, "⚖"), "Rules"),
+    h("button", { class: "quick-btn", type: "button", onclick: () => openHelp() }, h("span", { "aria-hidden": "true" }, "?"), "How it works"));
+}
+
+// The Rules page: written from the challenge's own settings, so it can never drift from what the app scores.
+function rulesFor(ch) {
+  const daily = L.goalList(ch).filter((g) => !g.closedOn && !L.isWeekly(g));
+  const weekly = L.goalList(ch).filter((g) => !g.closedOn && L.isWeekly(g));
+  const pot = ch.pot?.buyIn > 0 ? ch.pot : null;
+  const lim = pot ? (pot.strikes >= 1 ? pot.strikes : 3) : 0;
+  const back = pot?.comeback > 0 ? Math.min(pot.comeback, pot.buyIn) : 0;
+  const offs = L.skipDates(ch);
+  const sec = (title, lines) => h("section", { class: "rule" }, h("h3", {}, title), h("ul", {}, lines.filter(Boolean).map((l) => h("li", {}, l))));
+  return [
+    sec("The challenge", [
+      `${ch.name}: ${fmtDay(ch.start, { month: "short", day: "numeric" })} to ${fmtDay(ch.end, { month: "short", day: "numeric" })} (${L.challengeLength(ch)} days).`,
+      "Days run midnight to midnight, Pacific time.",
+      "You can tick or fix a day until noon the next day. Then it locks for good and posts to the Daily Board.",
+      offs.length ? `Days off: ${offs.map((d) => fmtDay(d, { month: "short", day: "numeric" })).join(", ")}. Nothing counts on them.` : null,
+    ]),
+    sec("The goals", [
+      daily.length ? `Every day: ${daily.map((g) => g.text).join(", ")}.` : null,
+      ...weekly.map((g) => `${g.text}: ${L.cadenceLabel(g)}. Weeks run Monday to Sunday.`),
+      "Set your own number for each goal under Edit goals. That's your target, and it's on your honor.",
+      !daily.length && !weekly.length ? "No goals yet." : null,
+    ]),
+    pot ? sec("The pot", [
+      `Buy-in: ${money(pot.buyIn)} each, paid up front to whoever's holding it. The app never moves money.`,
+      "A strike is a day you didn't finish every daily goal, or a weekly goal you came up short on when the week locks.",
+      `Out at ${lim} strike${lim === 1 ? "" : "s"}.`,
+      "Everyone still in at the end splits the pot evenly. If nobody makes it, everyone gets their buy-in back.",
+      back ? `Comeback: once you're out, finish without another strike and you get ${money(back)} back. It cuts your loss; it never wins you a share.` : "No comeback this time: once you're out, you're out.",
+    ]) : sec("The pot", ["No pot on this challenge. Bragging rights only."]),
+    pot ? sec("Pardons", [
+      "Had a real reason for a strike? Ask for a pardon on it (The Pot, Your strikes).",
+      "Everyone else votes yes or no. More than half of the other players saying yes wipes the strike.",
+      "You can't vote on your own. Voting stays open after the last day until the owner settles the pot, so last-day strikes can be pardoned too.",
+    ]) : null,
+    ch.houseRules ? h("section", { class: "rule house" }, h("h3", {}, "House rules"), h("p", { class: "house-text" }, ch.houseRules)) : null,
+  ];
+}
+function openRules() {
+  const ch = current();
+  state._sheetIs = "rules";
+  openSheet(() => [
+    h("h2", { id: "sheetTitle" }, "The rules"),
+    h("p", { class: "sub" }, ch ? `For ${ch.name}. This page writes itself from the challenge settings.` : "No challenge yet."),
+    ...(ch ? rulesFor(ch) : []),
+    h("div", { class: "sheet-actions" }, closeBtn()),
+  ]);
+}
+
+function openHelp(open = null) {
+  state._sheetIs = "help";
+  const q = (id, title, ...body) => h("details", { class: "help", id: "help-" + id, open: open === id }, h("summary", {}, h("span", { class: "help-q", "aria-hidden": "true" }, "?"), title), h("div", { class: "help-body" }, ...body));
+  const p = (t) => h("p", {}, t);
+  const kind = phone();
+  openSheet(() => [
+    h("h2", { id: "sheetTitle" }, "How it works"),
+    h("p", { class: "sub" }, "Everything in one place. Tap a question."),
+    q("tick", "How do I check off a goal?", p("Tap it on the main screen. Tap again to undo. You can fix yesterday until noon today: use the Yesterday button above your goals.")),
+    q("target", "What's “your target”?", p("Your own number for a goal, like 180 g of protein. Set it under Edit goals. Everyone has their own; it's on your honor.")),
+    q("weekly", "How do weekly goals work?", p("Some goals are “N days a week” instead of every day. Weeks run Monday to Sunday. The bar shows how close you are.")),
+    q("strike", "What's a strike?", p("A day you didn't finish every daily goal, or a weekly goal you came up short on when the week ends. A day only counts once it locks at noon the next day. Days off never count.")),
+    q("pot", "How does the pot work?", p("Everyone puts in the buy-in up front, outside the app. Too many strikes and you're out. Whoever is still in at the end splits it. If nobody makes it, everyone gets their money back.")),
+    q("comeback", "I'm out. Now what?", p("Keep going. If the challenge has a comeback, finish without another strike and you get that amount back. You can't win the pot that way, but it cuts your loss.")),
+    q("pardon", "Can a strike be forgiven?", p("Yes. Under The Pot, Your strikes, tap Ask for a pardon. The others vote. More than half of them saying yes wipes it. You can't vote on your own.")),
+    q("board", "What's the Daily Board?", p("Each day's final scores, posted once the day locks at noon. The top of the list is a live view of today.")),
+    q("chat", "What's Trash Talk?", p("A group message board. Everyone in the group sees it. You can delete your own posts.")),
+    q("home", "How do I put it on my home screen?",
+      h("p", {}, h("b", {}, "iPhone")), stepsList("ios"), h("p", {}, h("b", {}, "Android")), stepsList("android"),
+      kind !== "other" ? p(kind === "ios" ? "You're on an iPhone: use the first set." : "You're on Android: use the second set.") : null),
+    q("signin", "It won't let me in.", p("Sign in with the same Google account the group owner added. If it still says you're not on the list, ask the owner to check your email under People in the group.")),
+    h("div", { class: "sheet-actions" }, h("button", { class: "btn blaze", type: "button", onclick: () => openRules() }, "Read the rules"), closeBtn()),
+  ]);
+}
+
+// The invite: one message that answers every first-day question.
+function inviteText() {
+  return [
+    "You're in the Alpha Pack \u{1F43A}\u{1F4AA}",
+    "",
+    "Open: " + appLink(),
+    "Sign in with Google, using this email (the one I added). Pick the name the guys will see, and you're in.",
+    "",
+    "Make it an app on your home screen:",
+    "iPhone: open the link in Safari, tap Share (square with the up arrow), then “Add to Home Screen”.",
+    "Android: open the link in Chrome, tap ⋮ (top right), then “Add to Home screen” or “Install app”.",
+    "",
+    "Every day: tick your goals. Miss one and it's a strike. Tap “Rules” or “How it works” in the app for the rest.",
+  ].join("\n");
+}
+async function sendInvite() {
+  const text = inviteText();
+  try {
+    if (navigator.share) { await navigator.share({ title: "Alpha Pack", text }); return; }
+  } catch (e) { if (e && e.name === "AbortError") return; }
+  try { await navigator.clipboard.writeText(text); toast("Invite copied. Paste it in a text."); }
+  catch { state._inviteShown = true; openSheet(() => [h("h2", { id: "sheetTitle" }, "The invite"), h("p", { class: "sub" }, "Copy this and text it."), h("pre", { class: "invite-text" }, text), h("div", { class: "sheet-actions" }, closeBtn())]); }
+}
+
+// Owner only: house rules. Words only; the app never scores them.
+function houseRulesField(ch) {
+  const ta = h("textarea", { id: "houseRules", rows: "5", maxlength: String(L.MAX_RULES), placeholder: "e.g. Cheat meals need a photo in Trash Talk.", "aria-label": "House rules" });
+  ta.value = ch.houseRules || "";
+  return h("div", { class: "field" }, h("label", { for: "houseRules" }, "House rules"), ta,
+    h("button", { class: "mini-btn", type: "button", style: "min-height:44px", onclick: async () => {
+      const r = L.houseRulesPatch(ta.value);
+      if (r.error) return toast(r.error);
+      try { await state.backend.mergeChallenge(ch.id, r.patch); toast(r.patch.houseRules ? "House rules saved. They're on the Rules page." : "House rules cleared."); }
+      catch (e) { console.error(e); toast("That didn't save."); }
+    } }, "Save house rules"),
+    h("p", { class: "seg-note" }, "Anything the app doesn't count: everyone reads it on the Rules page. Strikes, the pot and votes come from the settings above."));
+}
+
+// ---------- daily board posting: retired ----------
+// The board scores every locked day from the ticks, so nothing reads results docs any more, and members can't write
+// them (a copycat challenge could jam a date). Kept as a no-op so the callers stay put; season-1 docs are untouched.
 async function postDueResults() {
+  return;
+  /* eslint-disable no-unreachable */
   if (state.posting || !state.players || !state.challenges || !state.results) return;
   const ch = defaultChallenge(); // the board posts for the live challenge, whatever is on screen
   if (!ch) return;
@@ -911,6 +1171,7 @@ async function boot() {
     if (demo) {
       const { createDemoBackend } = await import("./backend-demo.js");
       state.backend = createDemoBackend(demo, { latency: Number(params.get("latency") || 120) });
+      window.__ddBackend = state.backend; // demo only: lets the UI tests tamper with the sample store
     } else if (window.DD_FIREBASE) {
       const { createFirebaseBackend } = await import("./backend-firebase.js");
       state.backend = createFirebaseBackend(window.DD_FIREBASE);

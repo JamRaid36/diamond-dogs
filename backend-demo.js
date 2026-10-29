@@ -38,6 +38,8 @@ function seed(scenario, now) {
     };
   }
   if (scenario === "pot") ch.pot = { buyIn: 50, strikes: 2, paid: {} }; // riley has missed days: out at 2
+  if (scenario === "pardon") ch.pot = { buyIn: 100, strikes: 3, comeback: 50, paid: { me: true } }; // riley asks a pardon, sam voted yes
+  if (scenario === "over") { ch.end = d(-2); ch.pot = { buyIn: 100, strikes: 3, comeback: 50, paid: {} }; } // final, not settled
   if (scenario === "lostgoals") { ch.start = d(-2); ch.createdAt = now; ch.goals = {}; }
   if (scenario === "today") { ch.start = today; ch.createdAt = now; Object.values(ch.goals).forEach((g) => { g.addedOn = today; }); }
   if (scenario === "catchup") { ch.start = d(-2); ch.createdAt = now; Object.values(ch.goals).forEach((g) => { g.addedOn = d(-2); }); }
@@ -65,6 +67,12 @@ function seed(scenario, now) {
       });
     }
     store.players[uid] = { name: names[uid], joinedAt: joined, targets: targets[uid], days };
+  }
+  if (scenario === "pardon") {
+    const st = L.potStatus(store.players, Object.assign({ id: "c1" }, ch), now);
+    const rs = st.rows.find((r) => r.uid === "riley").list[0];
+    store.players.riley.appeals = { [rs.pardon.key]: true };
+    store.players.sam.votes = { [rs.pardon.key]: true };
   }
   if (scenario === "active" || scenario === "showcase" || scenario === "member") {
     const t0 = now - 3 * 3600000;

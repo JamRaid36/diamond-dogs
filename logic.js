@@ -3,10 +3,13 @@
  * Data shapes (Firestore):
  *   challenges/<id>  {name, start, end, createdBy, createdAt,
  *                     goals: {<goalId>: {text, addedOn, closedOn|null, order, perWeek|null}}}
- *                     pot: {buyIn, strikes, paid: {<uid>: bool}}   play money: misses are strikes, the survivors split it
+ *                     pot: {buyIn, strikes, comeback, paid: {<uid>: bool}, settled: {at, rows}|null}   play money: misses are
+ *                          strikes, the survivors split it; settled = the owner froze the payouts
+ *                     houseRules: text   owner's free-text rules, shown on the Rules page, never scored
  *                     skips: {<YYYY-MM-DD>: bool}   days off: nothing counts, streaks jump them, weekly targets drop a day
  *                     perWeek null = a daily goal (every day counts); 1-7 = "N days a week", weeks run Mon-Sun.
- *   players/<uid>    {name, joinedAt, targets: {<goalId>: text}, days: {<YYYY-MM-DD>: {<goalId>: bool}}}
+ *   players/<uid>    {name, joinedAt, targets: {<goalId>: text}, days: {<YYYY-MM-DD>: {<goalId>: bool}},
+ *                     appeals: {<strikeKey>: bool}, votes: {<strikeKey>: bool}}   pardons: see pardonFor
  *   results/<date>   {date, challengeId, rows: [{uid, name, hit, of, pct, perfect}], createdAt}   (create-only)
  * Day boundary is America/Los_Angeles. A day stays editable until noon the next day, then it is final and its
  * results doc may be posted.
@@ -26,12 +29,18 @@
   var dateFmt = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" });
   var hourFmt = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" });
 
+  // Never throws: a junk timestamp (text, NaN, 1e100) reads as 1970, so one bad record can't crash every screen.
+  function safeMs(ms) {
+    var n = Number(ms);
+    return isFinite(n) && Math.abs(n) <= 8.64e15 ? n : 0;
+  }
+
   function pacificDate(ms) {
-    return dateFmt.format(new Date(ms));
+    return dateFmt.format(new Date(safeMs(ms)));
   }
 
   function pacificHour(ms) {
-    return Number(hourFmt.format(new Date(ms))) % 24;
+    return Number(hourFmt.format(new Date(safeMs(ms)))) % 24;
   }
 
   // Calendar arithmetic on YYYY-MM-DD strings, done in UTC so DST never shifts a day.
@@ -54,10 +63,25 @@
     return !!ch && date >= ch.start && date <= ch.end;
   }
 
+  // Every goal is read through cleanGoal: a malformed one (bad dates, odd types) is dropped, never trusted, so one bad
+  // record can't throw in scoring for everyone. The rules can't check map values one by one; this is the check.
+  // Goal ids that collide with built-in object names would dodge plain-object lookups; they're never a real goal.
+  function badId(id) { return id === "__proto__" || id in Object.prototype; }
+
+  function cleanGoal(id, v) {
+    if (badId(id) || !v || typeof v !== "object" || !isDate(v.addedOn)) return null;
+    var pw = typeof v.perWeek === "number" && v.perWeek >= 1 && v.perWeek <= 7 && Math.round(v.perWeek) === v.perWeek ? v.perWeek : null;
+    return {
+      id: id, text: typeof v.text === "string" && v.text ? v.text.slice(0, MAX_TEXT) : "Goal", addedOn: v.addedOn,
+      closedOn: isDate(v.closedOn) ? v.closedOn : null, order: typeof v.order === "number" && isFinite(v.order) ? v.order : 0, perWeek: pw,
+    };
+  }
+
   function goalList(ch) {
     var g = (ch && ch.goals) || {};
+    if (typeof g !== "object") return [];
     return Object.keys(g)
-      .map(function (id) { return Object.assign({ id: id }, g[id]); })
+      .map(function (id) { return cleanGoal(id, g[id]); }).filter(Boolean)
       .sort(function (a, b) { return (a.order || 0) - (b.order || 0) || (a.addedOn < b.addedOn ? -1 : 1); });
   }
 
@@ -120,6 +144,7 @@
     for (var d = start; d <= addDays(start, 6); d = addDays(d, 1)) {
       if (isSkip(ch, d) && inChallenge(ch, d)) { off++; continue; }
       if (!activeGoals(ch, d).some(function (g) { return g.id === goal.id; })) continue;
+      if (!onRecord(player, ch, d)) continue; // a late joiner's target is their own days, same as strikesFor
       counted++;
       if (d <= date && isDone(player, d, goal.id)) done++;
     }
@@ -187,11 +212,16 @@
     return n;
   }
 
-  var MAX_BACKDATE = 7;
+  // No backdated starts: the server locks every day at noon Pacific the next day, for everyone but the owner,
+  // so a start in the past would give days nobody could tick. (Catch-up existed for season 1; with money on the
+  // line, backfilling days is the risk, so it's off. The owner can still tick anyone's day.)
+  var MAX_BACKDATE = 0;
 
   // A challenge created with a start date in the past opens a one-time catch-up: its days before the creation day
   // stay tickable until noon the day after it was created, then lock like any other day.
   function catchUpOpen(ch, nowMs) {
+    return false; // off: see MAX_BACKDATE. The rest is kept for the record of how season 1 ran.
+    /* eslint-disable no-unreachable */
     if (!ch || !ch.createdAt) return false;
     var created = pacificDate(ch.createdAt);
     if (!(ch.start < created)) return false;
@@ -214,7 +244,8 @@
     var today = pacificDate(nowMs);
     if (date === today) return true;
     if (date === addDays(today, -1) && pacificHour(nowMs) < FINAL_HOUR) return true;
-    return !!ch && date >= ch.start && date < pacificDate(ch.createdAt || 0) && date < today && catchUpOpen(ch, nowMs);
+    // The server locks members out of anything older than 3 days back (MAX_BACKDATE keeps catch-up inside that).
+    return !!ch && catchUpOpen(ch, nowMs) && date >= ch.start && date >= addDays(today, -3) && date < pacificDate(ch.createdAt || 0) && date < today;
   }
 
   // A date is final (the board can post it) once it's in the past and nobody can tick it any more.
@@ -263,7 +294,7 @@
 
   // A player counts on dates on or after the day they joined.
   function joinedBy(player, date) {
-    if (!player || !player.joinedAt) return true;
+    if (!player || typeof player.joinedAt !== "number" || !isFinite(player.joinedAt)) return true; // the rules require a number; never crash on one
     return pacificDate(player.joinedAt) <= date;
   }
 
@@ -304,7 +335,7 @@
     }).filter(function (g) { return g.text; });
     if (!name) errors.name = "Give the challenge a name.";
     if (!isDate(input.start)) errors.start = "Pick a start date.";
-    else if (input.start < addDays(today, -MAX_BACKDATE)) errors.start = "Start no more than a week back.";
+    else if (input.start < addDays(today, -MAX_BACKDATE)) errors.start = "Start today or later.";
     if (!isDate(input.end)) errors.end = "Pick an end date.";
     else if (isDate(input.start) && input.end < input.start) errors.end = "End on or after the start date.";
     else if (isDate(input.start) && daysBetween(input.start, input.end) > 365) errors.end = "Keep it to a year or less.";
@@ -377,7 +408,7 @@
     if (!canMoveStart(ch, nowMs)) return { error: "The start can only move back on the day the challenge was set up." };
     if (!isDate(newStart)) return { error: "Pick a date." };
     if (newStart >= ch.start) return { error: "Pick a day before the current start." };
-    if (newStart < addDays(pacificDate(ch.createdAt), -MAX_BACKDATE)) return { error: "No more than a week back." };
+    if (newStart < addDays(pacificDate(ch.createdAt), -MAX_BACKDATE)) return { error: "Start today or later." };
     var goals = {};
     goalList(ch).forEach(function (g) { if (g.addedOn === ch.start) goals[g.id] = { addedOn: newStart }; });
     return { patch: { start: newStart, goals: goals } };
@@ -397,6 +428,7 @@
 
   // ---------- the pot ----------
   // A day is on a player's record from the day they joined, plus the catch-up days if they joined while catch-up was open.
+  // (Catch-up is off now, but season 1 ran with it, so its records still score the way they did.)
   function onRecord(player, ch, date) {
     if (joinedBy(player, date)) return true;
     return !!(ch.createdAt && date < pacificDate(ch.createdAt) && ch.start < pacificDate(ch.createdAt) && player.joinedAt < catchUpClosesMs(ch));
@@ -406,7 +438,7 @@
   // Days off, days before a player joined, and days still open never count.
   function strikesFor(player, ch, nowMs) {
     var out = [];
-    if (!ch) return out;
+    if (!ch || !isDate(ch.start) || !isDate(ch.end)) return out;
     for (var d = ch.start; d <= ch.end && isFinal(d, nowMs, ch); d = addDays(d, 1)) {
       if (!onRecord(player, ch, d) || isSkip(ch, d) || !dailyGoals(ch, d).length) continue;
       if (!dayScore(player, ch, d).perfect) out.push({ kind: "day", date: d });
@@ -416,7 +448,7 @@
     for (var ws = weekStart(ch.start); ws <= ch.end; ws = addDays(ws, 7)) {
       var last = addDays(ws, 6) < ch.end ? addDays(ws, 6) : ch.end;
       if (!isFinal(last, nowMs, ch)) continue;
-      var off = 0, tally = {};
+      var off = 0, tally = Object.create(null); // keyed by goal id: no inherited names ("constructor")
       for (var x = ws > ch.start ? ws : ch.start; x <= last; x = addDays(x, 1)) {
         if (isSkip(ch, x)) { off++; continue; }
         if (!onRecord(player, ch, x)) continue;
@@ -440,33 +472,124 @@
     return n >= 0 && n <= 10000 ? n : null;
   }
 
-  // Everyone on the board is in for the buy-in. Out at `strikes` strikes. Survivors split the pot evenly;
-  // if nobody survives, everyone gets their buy-in back.
+  // A pardon: the struck player asks, the others vote. More than half of the other entrants voting yes wipes the strike.
+  // Asks and votes live on each player's own doc (players write only their own), keyed by the strike.
+  //   players/<uid>.appeals: {<strikeKey>: true}      only counts when the key names <uid> itself
+  //   players/<uid>.votes:   {<strikeKey>: true|false} never counts on the voter's own strikes
+  function strikeKey(chId, uid, s) {
+    return [chId, uid, s.kind, s.date, s.goalId || "-"].join("|");
+  }
+
+  function pardonFor(players, entrants, uid, key) {
+    var others = entrants.filter(function (u) { return u !== uid; });
+    var asked = !!(players[uid] && players[uid].appeals && players[uid].appeals[key] === true);
+    var yes = 0, no = 0;
+    others.forEach(function (u) {
+      var v = players[u] && players[u].votes && players[u].votes[key];
+      if (v === true) yes++; else if (v === false) no++;
+    });
+    var need = Math.floor(others.length / 2) + 1;
+    return { key: key, asked: asked, yes: yes, no: no, need: need, voters: others.length, pardoned: asked && others.length > 0 && yes >= need };
+  }
+
+  // Everyone on the board is in for the buy-in. Out at `strikes` strikes, after pardons.
+  // Comeback: once out, finish without another strike and get `comeback` dollars back, paid from the pot first.
+  // Survivors split what's left evenly; if nobody survives, everyone gets their buy-in back.
   function potStatus(players, ch, nowMs) {
     var pot = ch && ch.pot;
-    if (!pot || !(pot.buyIn > 0)) return null;
+    if (!pot || !(pot.buyIn > 0) || !isDate(ch.start) || !isDate(ch.end)) return null;
+    if (pot.settled && Array.isArray(pot.settled.rows)) return settledStatus(pot);
+    players = players || {};
     var limit = pot.strikes >= 1 ? pot.strikes : 3;
+    var back = pot.comeback > 0 ? Math.min(pot.comeback, pot.buyIn) : 0;
     // Entrants: everyone on the board who joined by the last day. Joining after it's over doesn't buy a share.
-    var rows = Object.keys(players || {}).filter(function (uid) { return joinedBy(players[uid], ch.end); }).map(function (uid) {
-      var n = strikesFor(players[uid], ch, nowMs).length;
-      return { uid: uid, name: (players[uid] && players[uid].name) || "Player", strikes: n, out: n >= limit, paid: !!(pot.paid && pot.paid[uid] === true) };
+    var entrants = Object.keys(players).filter(function (uid) { return joinedBy(players[uid], ch.end); });
+    var rows = entrants.map(function (uid) {
+      var list = strikesFor(players[uid], ch, nowMs).map(function (s) {
+        return Object.assign({}, s, { pardon: pardonFor(players, entrants, uid, strikeKey(ch.id, uid, s)) });
+      }).sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+      var n = list.filter(function (s) { return !s.pardon.pardoned; }).length;
+      return {
+        uid: uid, name: (players[uid] && players[uid].name) || "Player", strikes: n, list: list,
+        out: n >= limit, comeback: back > 0 && n === limit, paid: !!(pot.paid && pot.paid[uid] === true),
+      };
     }).sort(function (a, b) { return a.strikes - b.strikes || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0); });
     var alive = rows.filter(function (r) { return !r.out; }).length;
     var total = pot.buyIn * rows.length;
+    var comebacks = alive ? rows.filter(function (r) { return r.comeback; }).length : 0;
+    var share = alive ? Math.floor(((total - back * comebacks) / alive) * 100) / 100 : pot.buyIn;
+    rows.forEach(function (r) { r.payout = !alive ? pot.buyIn : !r.out ? share : r.comeback ? back : 0; });
     return {
-      buyIn: pot.buyIn, limit: limit, pot: total, rows: rows, alive: alive,
-      share: alive ? Math.floor((total / alive) * 100) / 100 : pot.buyIn, refund: alive === 0,
+      buyIn: pot.buyIn, limit: limit, comeback: back, pot: total, rows: rows, alive: alive, comebacks: comebacks,
+      share: share, refund: alive === 0, settled: false,
       paid: rows.filter(function (r) { return r.paid; }).length, final: isFinal(ch.end, nowMs, ch),
     };
   }
 
-  // Owner only: set the buy-in and the strike limit. buyIn 0 turns the pot off.
-  function potPatch(buyIn, strikes) {
+  // Settling freezes the pot: who's out, who made a comeback, and every payout. After that, votes and tick fixes
+  // change nothing. Pardon votes stay open until the owner settles, so last-day strikes can still be appealed.
+  var ROW_KEYS = ["uid", "name", "strikes", "out", "comeback", "payout"];
+  function settlePatch(st, nowMs) {
+    if (!st) return { error: "There's no pot to settle." };
+    if (st.settled) return { error: "Already settled." };
+    if (!st.final) return { error: "Settle once the last day locks (noon the day after it ends)." };
+    var rows = st.rows.map(function (r) { var o = {}; ROW_KEYS.forEach(function (k) { o[k] = r[k]; }); return o; });
+    return { patch: { pot: { settled: { at: nowMs, rows: rows } } } };
+  }
+
+  function unsettlePatch() {
+    return { patch: { pot: { settled: null } } };
+  }
+
+  function settledStatus(pot) {
+    var limit = pot.strikes >= 1 ? pot.strikes : 3;
+    var back = pot.comeback > 0 ? Math.min(pot.comeback, pot.buyIn) : 0;
+    var rows = pot.settled.rows.map(function (r) {
+      return { uid: r.uid, name: r.name, strikes: r.strikes, out: !!r.out, comeback: !!r.comeback, payout: r.payout, list: [], paid: !!(pot.paid && pot.paid[r.uid] === true) };
+    });
+    var alive = rows.filter(function (r) { return !r.out; }).length;
+    var survivor = rows.find(function (r) { return !r.out; });
+    return {
+      buyIn: pot.buyIn, limit: limit, comeback: back, pot: pot.buyIn * rows.length, rows: rows, alive: alive,
+      comebacks: alive ? rows.filter(function (r) { return r.comeback; }).length : 0,
+      share: survivor ? survivor.payout : pot.buyIn, refund: alive === 0, settled: true, settledAt: pot.settled.at,
+      paid: rows.filter(function (r) { return r.paid; }).length, final: true,
+    };
+  }
+
+  // Owner only: set the buy-in, the strike limit and the comeback. buyIn 0 turns the pot off; comeback 0 turns it off.
+  function potPatch(buyIn, strikes, comeback) {
     var b = cleanMoney(buyIn);
     if (b === null) return { error: "Buy-in is a whole-dollar amount, 0 to 10,000." };
     var k = Math.round(Number(strikes));
     if (!(k >= 1 && k <= 20)) return { error: "Strikes: 1 to 20." };
-    return { patch: { pot: { buyIn: b, strikes: k } } };
+    var c = cleanMoney(comeback == null || comeback === "" ? 0 : comeback);
+    if (c === null || c > b) return { error: "The comeback can't be more than the buy-in." };
+    return { patch: { pot: { buyIn: b, strikes: k, comeback: c } } };
+  }
+
+  // Owner only: house rules, free text everyone reads on the Rules page. The app never scores them.
+  // Keeps line breaks; trims each line; at most MAX_RULES characters. Empty clears them.
+  var MAX_RULES = 1000;
+  function houseRulesPatch(text) {
+    var t = String(text == null ? "" : text).replace(/\r\n?/g, "\n").split("\n").map(function (l) { return l.replace(/[ \t]+/g, " ").trim(); })
+      .join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    if (t.length > MAX_RULES) return { error: "House rules: " + MAX_RULES + " characters at most." };
+    return { patch: { houseRules: t } };
+  }
+
+  // A player asks for a pardon on one of their own strikes, or takes the ask back.
+  function appealPatch(key, on) {
+    var m = {};
+    m[key] = !!on;
+    return { patch: { appeals: m } };
+  }
+
+  // A player votes yes or no on someone else's strike.
+  function votePatch(key, yes) {
+    var m = {};
+    m[key] = !!yes;
+    return { patch: { votes: m } };
   }
 
   function paidPatch(uid, paid) {
@@ -514,7 +637,7 @@
   function orphanGoals(players, ch, all) {
     var known = Object.assign({}, (ch && ch.goals) || {}); // ids of every challenge: another challenge's goals aren't missing
     (all || []).forEach(function (c) { Object.assign(known, c.goals || {}); });
-    var found = {};
+    var found = Object.create(null);
     Object.keys(players || {}).forEach(function (uid) {
       var days = (players[uid] && players[uid].days) || {};
       Object.keys(days).forEach(function (d) {
@@ -585,6 +708,7 @@
     inChallenge: inChallenge, goalList: goalList, activeGoals: activeGoals, isLocked: isLocked, isDone: isDone,
     dayScore: dayScore, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
     strikesFor: strikesFor, potStatus: potStatus, potPatch: potPatch, paidPatch: paidPatch,
+    strikeKey: strikeKey, appealPatch: appealPatch, votePatch: votePatch, houseRulesPatch: houseRulesPatch, MAX_RULES: MAX_RULES, settlePatch: settlePatch, unsettlePatch: unsettlePatch,
     isSkip: isSkip, skipDates: skipDates, skipPatch: skipPatch, renamePatch: renamePatch, endPlan: endPlan, handoffPlan: handoffPlan,
     catchUpOpen: catchUpOpen, pruneEmpty: pruneEmpty, orphanGoals: orphanGoals, recoverGoalsPatch: recoverGoalsPatch, ownerTickPatch: ownerTickPatch, datesPatch: datesPatch, canMoveStart: canMoveStart, moveStartPatch: moveStartPatch, catchUpClosesMs: catchUpClosesMs, editableDates: editableDates, MAX_BACKDATE: MAX_BACKDATE,
     resultsDue: resultsDue, resultId: resultId, buildResult: buildResult, joinedBy: joinedBy,
