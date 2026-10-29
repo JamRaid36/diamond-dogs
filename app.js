@@ -5,7 +5,7 @@ const $ = (s) => document.querySelector(s);
 const app = $("#app");
 
 const state = {
-  backend: null, user: null, ms: null, players: null, challenges: null, results: null, members: null,
+  backend: null, user: null, ms: null, players: null, challenges: null, results: null, members: null, chat: {}, chatDraft: "", confirmDel: null,
   viewDay: "today", expanded: new Set(), lastDay: null, lastFinal: null, posted: false, unsubs: [],
 };
 const now = () => (window.DD_NOW ? window.DD_NOW() : Date.now());
@@ -64,6 +64,16 @@ function packOrder(ch, date) {
 
 // ---------- render ----------
 function render() {
+  const a = document.activeElement;
+  const keep = a && a.id && app.contains(a) ? { id: a.id, start: a.selectionStart, end: a.selectionEnd } : null;
+  renderInner();
+  if (keep) {
+    const el = document.getElementById(keep.id);
+    if (el && el !== document.activeElement) { el.focus({ preventScroll: true }); try { el.setSelectionRange(keep.start, keep.end); } catch { /* not a text input */ } }
+  }
+}
+
+function renderInner() {
   const s = state;
   $("#dayChip").hidden = true;
   $("#menuBtn").hidden = true;
@@ -88,6 +98,7 @@ function render() {
     demoBanner(),
     t < ch.start ? renderUpcoming(ch) : t > ch.end ? renderFinished(ch) : renderYou(ch),
     renderPack(ch),
+    renderChat(),
     renderGrid(ch),
     renderBoard(ch),
     renderFoot(),
@@ -468,6 +479,46 @@ function cadenceSelect(id, perWeek, onChange, label) {
   return sel;
 }
 
+// ---------- Trash Talk: the group's message board ----------
+function fmtWhen(ms) {
+  const d = new Date(ms);
+  const sameDay = L.pacificDate(ms) === today();
+  return d.toLocaleString("en-US", sameDay ? { hour: "numeric", minute: "2-digit" } : { weekday: "short", hour: "numeric", minute: "2-digit" });
+}
+
+function renderChat() {
+  const msgs = Object.entries(state.chat || {}).map(([id, m]) => Object.assign({ id }, m)).sort((a, b) => a.at - b.at).slice(-60);
+  const input = h("input", { id: "chatInput", maxlength: String(L.MAX_POST), autocomplete: "off", enterkeyhint: "send", placeholder: "Say something to the pack", value: state.chatDraft, "aria-label": "Message",
+    oninput: (e) => { state.chatDraft = e.target.value; } });
+  const send = async (e) => {
+    e.preventDefault();
+    const text = L.cleanPost(state.chatDraft);
+    if (!text) return;
+    state.chatDraft = "";
+    input.value = "";
+    try { await state.backend.postMessage({ uid: state.user.uid, text, at: now() }); }
+    catch (err) { console.error(err); state.chatDraft = text; render(); toast("That didn't post. Check your connection and try again."); }
+  };
+  const list = h("ol", { class: "chat-list", "aria-live": "polite" }, msgs.map((m) => {
+    const mine = m.uid === state.user.uid;
+    const canDelete = mine || state.ms?.owner;
+    const name = state.players?.[m.uid]?.name || "Player";
+    return h("li", { class: "msg" + (mine ? " mine" : "") },
+      h("div", { class: "msg-meta" }, h("b", {}, mine ? "You" : name), h("span", {}, fmtWhen(m.at)),
+        canDelete ? h("button", { class: "msg-del", type: "button", "aria-label": state.confirmDel === m.id ? "Tap again to delete" : "Delete message", onclick: async () => {
+          if (state.confirmDel !== m.id) { state.confirmDel = m.id; render(); return; }
+          state.confirmDel = null;
+          try { await state.backend.deleteMessage(m.id); } catch (err) { console.error(err); toast("That didn't delete."); }
+        } }, state.confirmDel === m.id ? "Delete?" : "×") : null),
+      h("p", { class: "msg-text" }, m.text));
+  }));
+  return h("section", { "aria-labelledby": "chatH" },
+    h("div", { class: "sec-head" }, h("h2", { id: "chatH" }, "Trash Talk"), h("span", { class: "note" }, "Everyone in the group sees this")),
+    h("div", { class: "chat-card" },
+      msgs.length ? list : h("p", { class: "empty" }, h("b", {}, "Quiet in here. "), "Somebody start it."),
+      h("form", { class: "chat-form", onsubmit: send }, input, h("button", { class: "btn blaze", type: "submit" }, "Send"))));
+}
+
 // ---------- sheets ----------
 const sheet = $("#sheet");
 function openSheet(build) {
@@ -634,7 +685,7 @@ async function refreshMembership() {
 
 function subscribe() {
   if (state.unsubs.length) return;
-  for (const coll of ["players", "challenges", "results", "members"]) {
+  for (const coll of ["players", "challenges", "results", "members", "chat"]) {
     state.unsubs.push(state.backend.watch(coll, (data) => {
       state[coll] = data;
       render();
@@ -644,7 +695,7 @@ function subscribe() {
   }
 }
 
-function unsubscribe() { state.unsubs.forEach((u) => u && u()); state.unsubs = []; state.players = state.challenges = state.results = state.members = null; }
+function unsubscribe() { state.unsubs.forEach((u) => u && u()); state.unsubs = []; state.players = state.challenges = state.results = state.members = null; state.chat = {}; }
 
 // Roll the day (and the noon close) without a reload.
 setInterval(() => {

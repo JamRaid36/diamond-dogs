@@ -6,7 +6,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, getDoc, setDoc, addDoc,
-  onSnapshot,
+  onSnapshot, query, orderBy, limit, deleteDoc,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 export function createFirebaseBackend(config) {
@@ -60,7 +60,9 @@ export function createFirebaseBackend(config) {
       if (coll === "members") {
         return onSnapshot(membersRef, (s) => cb(s.exists() ? s.data() : { emails: [] }), onError);
       }
-      return onSnapshot(collection(db, coll), (qs) => {
+      // chat is the only collection that grows without bound: keep the newest 150
+      const src = coll === "chat" ? query(collection(db, "chat"), orderBy("at", "desc"), limit(150)) : collection(db, coll);
+      return onSnapshot(src, (qs) => {
         const out = {};
         qs.forEach((d) => { out[d.id] = d.data(); });
         cb(out);
@@ -75,6 +77,8 @@ export function createFirebaseBackend(config) {
     async createResult(date, data) {
       try { await setDoc(doc(db, "results", date), data); return true; } catch { return false; }
     },
+    async postMessage(data) { await addDoc(collection(db, "chat"), data); },
+    async deleteMessage(id) { await deleteDoc(doc(db, "chat", id)); },
     async setMembers(emails) { await setDoc(membersRef, { emails: emails.map(lower) }, { merge: true }); },
   };
 }

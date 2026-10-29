@@ -15,7 +15,7 @@ function seed(scenario, now) {
   const today = L.pacificDate(now);
   const d = (n) => L.addDays(today, n);
   const start = d(-5);
-  const store = { players: {}, challenges: {}, results: {}, members: { ownerEmail: "you@example.com", emails: ["you@example.com", "sam@example.com", "riley@example.com"] } };
+  const store = { chat: {}, players: {}, challenges: {}, results: {}, members: { ownerEmail: "you@example.com", emails: ["you@example.com", "sam@example.com", "riley@example.com"] } };
   if (scenario === "empty") return store;
   const ch = {
     name: "Fall Cut", start: scenario === "upcoming" ? d(2) : start, end: scenario === "upcoming" ? d(23) : d(15),
@@ -64,6 +64,13 @@ function seed(scenario, now) {
     }
     store.players[uid] = { name: names[uid], joinedAt: joined, targets: targets[uid], days };
   }
+  if (scenario === "active" || scenario === "showcase" || scenario === "member") {
+    const t0 = now - 3 * 3600000;
+    const lines = scenario === "showcase"
+      ? [["sam", "Perfect day again. Somebody keep up."], ["riley", "I was lifting while you were typing that"], ["me", "Bold talk from the guy with a blank Tuesday"]]
+      : [["sam", "Six perfect days. Just saying."], ["riley", "Tomorrow. Watch."], ["me", "Talk is cheap, ticks aren't"]];
+    lines.forEach(([uid, text], i) => { store.chat["s" + i] = { uid, text, at: t0 + i * 1800000 }; });
+  }
   if (!["upcoming", "catchup", "today", "lostgoals", "showcase"].includes(scenario)) {
     const chWithId = Object.assign({ id: "c1" }, ch);
     for (let i = -5; i <= -2; i++) store.results[d(i)] = L.buildResult(store.players, chWithId, d(i), now);
@@ -74,7 +81,7 @@ function seed(scenario, now) {
 export function createDemoBackend(scenario = "active", opts = {}) {
   const now = opts.now || (window.DD_NOW ? window.DD_NOW() : Date.now());
   const store = seed(scenario, now);
-  const listeners = { players: new Set(), challenges: new Set(), results: new Set(), members: new Set() };
+  const listeners = { chat: new Set(), players: new Set(), challenges: new Set(), results: new Set(), members: new Set() };
   const authListeners = new Set();
   let user = scenario === "signedout" ? null : { uid: scenario === "notmember" ? "stranger" : "me", email: scenario === "notmember" ? "stranger@example.com" : "you@example.com" };
   if (scenario === "member") user = { uid: "sam", email: "sam@example.com" }; // a player who isn't the owner
@@ -101,6 +108,8 @@ export function createDemoBackend(scenario = "active", opts = {}) {
     async mergeChallenge(id, patch) { patch = L.pruneEmpty(patch); await wait(); store.challenges[id] = deepMerge(store.challenges[id] || {}, patch); emit("challenges"); },
     async createChallenge(data) { await wait(); const id = "c" + Date.now().toString(36); store.challenges[id] = data; emit("challenges"); return id; },
     async createResult(date, data) { await wait(); if (store.results[date]) return false; store.results[date] = data; emit("results"); return true; },
+    async postMessage(data) { await wait(); if (data.uid !== user?.uid) throw new Error("not yours"); store.chat["m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)] = data; emit("chat"); },
+    async deleteMessage(id) { await wait(); const m = store.chat[id]; if (m && m.uid !== user?.uid && store.members.ownerEmail !== user?.email) throw new Error("not yours"); delete store.chat[id]; emit("chat"); },
     async setMembers(emails) { await wait(); store.members = Object.assign({}, store.members, { emails }); emit("members"); },
     _store: store,
   };

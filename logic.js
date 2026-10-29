@@ -19,6 +19,7 @@
   var FINAL_HOUR = 12;
   var MAX_GOALS = 12;
   var MAX_TEXT = 60;
+  var MAX_POST = 280;
 
   var dateFmt = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" });
   var hourFmt = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" });
@@ -250,6 +251,11 @@
     return String(s == null ? "" : s).replace(/\s+/g, " ").trim().slice(0, MAX_TEXT);
   }
 
+  // A trash-talk post: trimmed, single spaces, at most MAX_POST characters.
+  function cleanPost(s) {
+    return String(s == null ? "" : s).replace(/\s+/g, " ").trim().slice(0, MAX_POST);
+  }
+
   function goalId(seed) {
     return "g" + seed.toString(36);
   }
@@ -439,7 +445,7 @@
   }
 
   return {
-    TZ: TZ, FINAL_HOUR: FINAL_HOUR, MAX_GOALS: MAX_GOALS,
+    TZ: TZ, FINAL_HOUR: FINAL_HOUR, MAX_GOALS: MAX_GOALS, MAX_POST: MAX_POST, cleanPost: cleanPost,
     pacificDate: pacificDate, pacificHour: pacificHour, addDays: addDays, daysBetween: daysBetween, isDate: isDate,
     inChallenge: inChallenge, goalList: goalList, activeGoals: activeGoals, isLocked: isLocked, isDone: isDone,
     dayScore: dayScore, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
