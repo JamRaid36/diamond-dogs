@@ -464,9 +464,11 @@ function renderSignoff(ch) {
     const votes = isMe || !so.enough ? null : h("span", { class: "pd-act" },
       h("button", { class: "mini-btn" + (v === true ? " on" : ""), type: "button", "aria-pressed": String(v === true), onclick: cast(true) }, "Fair"),
       h("button", { class: "mini-btn" + (v === false ? " on-no" : ""), type: "button", "aria-pressed": String(v === false), onclick: cast(false) }, "Too easy"));
-    const ownerBtn = owner && so.enough && !so.byOwner ? h("button", { class: "link-btn", type: "button", onclick: async () => {
-      try { await state.backend.mergeChallenge(ch.id, L.ownerSignoffPatch(ch, pid, true).patch); toast(`Approved ${isMe ? "your" : p.name + "'s"} goals as the owner.`); } catch (e) { console.error(e); toast("That didn't save."); }
-    } }, "Approve as owner") : null;
+    // The owner approves a list outright, or takes it back. Editing a goal also drops it (the approval is tied to the list).
+    const ownerBtn = owner && so.enough ? h("button", { class: "link-btn", type: "button", onclick: async () => {
+      const on = !so.byOwner;
+      try { await state.backend.mergeChallenge(ch.id, L.ownerSignoffPatch(ch, pid, on).patch); toast(on ? `Approved ${isMe ? "your" : p.name + "'s"} goals as the owner.` : `Owner approval taken back for ${isMe ? "your" : p.name + "'s"} goals.`); } catch (e) { console.error(e); toast("That didn't save."); }
+    } }, so.byOwner ? "Undo owner approval" : "Approve as owner") : null;
     return h("li", { class: so.approved ? "pardoned" : null },
       h("div", { class: "pd-what" }, h("b", {}, isMe ? "Your goals" : `${p.name || "Player"}'s goals`),
         goals.length ? h("ul", { class: "so-goals" }, goals.map((g) => h("li", {}, g.text, L.isWeekly(g) ? h("small", {}, ` · ${L.cadenceLabel(g)}`) : null)))
