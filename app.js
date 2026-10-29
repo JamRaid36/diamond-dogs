@@ -681,6 +681,33 @@ function renderFoot() {
 }
 
 // Owner only: correct a teammate's ticks on any day of the challenge.
+// Creator only: change another player's own goals, before or after the start (Jason 2026-10-29).
+function ownerGoalsFor(ch, uid, p) {
+  const t = today();
+  const started = L.isLocked(ch, t);
+  const view = L.ownView(ch, uid);
+  const goals = L.goalList(view).filter((g) => !(g.closedOn && g.closedOn <= g.addedOn));
+  const save = async (patch, ok) => { try { await state.backend.mergeChallenge(ch.id, patch); toast(ok); } catch (e) { console.error(e); toast("That didn't save."); } };
+  const key = uid.replace(/[^a-zA-Z0-9_-]/g, "");
+  const add = h("input", { id: `oga-${key}`, "data-keep": true, autocomplete: "off", maxlength: "60", placeholder: "Add a goal for them…", "aria-label": `New goal for ${p.name}` });
+  return h("div", { class: "owner-goals" }, h("span", { class: "tlabel" }, `Owner: ${p.name || "their"}'s goals`),
+    goals.length ? h("ul", { class: "off-list" }, goals.map((g) => {
+      const closed = !!g.closedOn && g.closedOn <= t;
+      const text = h("input", { id: `ogt-${key}-${g.id}`, autocomplete: "off", maxlength: "60", value: g.text, "aria-label": `Goal for ${p.name}`, disabled: closed,
+        onchange: (e) => { const r = L.ownPatch(uid, L.editGoalPatch(view, g.id, e.target.value, t, true)); if (r.error) return toast(r.error); save(r.patch, "Goal updated."); } });
+      return h("li", {}, text, closed ? h("small", {}, "closed") : h("button", { class: "mini-btn danger", type: "button", style: "min-height:44px;flex:none", onclick: async () => {
+        if (!started) { try { await state.backend.setOwnGoals(ch.id, uid, L.ownGoalsWithout(ch, uid, g.id)); toast("Goal removed."); } catch (e) { console.error(e); toast("That didn't save."); } return; }
+        const r = L.ownPatch(uid, L.closeGoalPatch(view, g.id, t)); if (r.error) return toast(r.error); save(r.patch, "Goal closed. Its history stays.");
+      } }, started ? "Close" : "Remove"));
+    })) : h("small", {}, "No goals yet."),
+    h("div", { style: "display:flex;gap:8px;margin-top:6px" }, add, h("button", { class: "mini-btn", type: "button", style: "min-height:44px;flex:none", onclick: async () => {
+      const r = L.ownPatch(uid, L.addGoalPatch(view, add.value, t, Date.now(), null));
+      if (r.error) return toast(r.error);
+      add.value = "";
+      save(r.patch, started ? "Goal added. It counts from today." : "Goal added.");
+    } }, "Add")));
+}
+
 function ownerEditor(ch, uid, p) {
   const t = today();
   const last = t > ch.end ? ch.end : t;
@@ -705,7 +732,8 @@ function ownerEditor(ch, uid, p) {
     try { await state.backend.deletePlayer(uid); toast(`${p.name || "They"} left the board${ch.pot?.buyIn > 0 ? " and the pot" : ""}. Remove their email in People too, or they can rejoin.`); }
     catch (e) { console.error(e); toast("That didn't save."); }
   } }, sure ? `Tap again: delete ${p.name || "them"}${ch.pot?.buyIn > 0 ? ", their ticks and their buy-in" : " and all their ticks"}` : "Take off the board");
-  return h("div", { class: "owner-edit" }, h("span", { class: "tlabel" }, self ? "Owner: fix your ticks" : "Owner: fix their ticks"), sel,
+  return h("div", { class: "owner-edit" }, self ? null : ownerGoalsFor(ch, uid, p),
+    days.length ? h("span", { class: "tlabel" }, self ? "Owner: fix your ticks" : "Owner: fix their ticks") : null, days.length ? sel : null,
     h("div", { class: "owner-ticks" }, L.activeGoals(ch, day).map((g) => {
       const on = L.isDone(p, day, g.id);
       return h("button", { class: "mini-btn" + (on ? " on" : ""), type: "button", "aria-pressed": String(on), onclick: async () => {
