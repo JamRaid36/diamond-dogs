@@ -27,6 +27,15 @@ function seed(scenario, now) {
       g4: { text: "Lights out by 11", addedOn: scenario === "upcoming" ? d(2) : d(-2), closedOn: null, order: 4 },
     },
   };
+  if (scenario === "showcase") { // marketing screenshots: Jason's real season-1 goals, sample ticks
+    ch.name = "Diamond Dogs Season 1"; ch.start = d(-2); ch.end = d(4); ch.createdAt = now;
+    ch.goals = {
+      g1: { text: "Protein 130g", addedOn: d(-2), closedOn: null, order: 1, perWeek: null },
+      g2: { text: "Under 2,000 calories", addedOn: d(-2), closedOn: null, order: 2, perWeek: 5 },
+      g3: { text: "Cardio or a walk", addedOn: d(-2), closedOn: null, order: 3, perWeek: 5 },
+      g4: { text: "Resistance Training", addedOn: d(-2), closedOn: null, order: 4, perWeek: 2 },
+    };
+  }
   if (scenario === "lostgoals") { ch.start = d(-2); ch.createdAt = now; ch.goals = {}; }
   if (scenario === "today") { ch.start = today; ch.createdAt = now; Object.values(ch.goals).forEach((g) => { g.addedOn = today; }); }
   if (scenario === "catchup") { ch.start = d(-2); ch.createdAt = now; Object.values(ch.goals).forEach((g) => { g.addedOn = d(-2); }); }
@@ -37,12 +46,16 @@ function seed(scenario, now) {
     sam: [[1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1]],
     riley: [[1, 0, 1], [0, 1, 1], [1, 1, 0], [1, 0, 1, 0], [0, 1, 1, 1], [1, 0, 0, 0]],
   };
-  const names = { me: "Alex", sam: "Sam", riley: "Riley" };
-  const targets = { me: { g1: "200 g", g2: "45 min" }, sam: { g1: "180 g", g2: "Lift 3x" }, riley: { g1: "150 g" } };
+  const names = scenario === "showcase" ? { me: "Jay", sam: "Costa", riley: "Joseph" } : { me: "Alex", sam: "Sam", riley: "Riley" };
+  const targets = scenario === "showcase" ? { me: { g1: "130 g" }, sam: {}, riley: {} } : { me: { g1: "200 g", g2: "45 min" }, sam: { g1: "180 g", g2: "Lift 3x" }, riley: { g1: "150 g" } };
   for (const uid of Object.keys(pattern)) {
     const days = {};
     if (scenario === "lostgoals" && uid === "me") days[today] = { g1: true, g3: true, g4: false };
-    if (!["upcoming", "catchup", "today", "lostgoals"].includes(scenario)) {
+    if (scenario === "showcase") {
+      const sample = { me: [[1, 1, 1, 0], [1, 1, 1, 1], [1, 0, 1, 0]], sam: [[1, 1, 0, 1], [1, 1, 1, 0], [1, 1, 1, 1]], riley: [[1, 0, 1, 0], [0, 1, 1, 1], [1, 0, 0, 0]] };
+      sample[uid].forEach((row, i) => { const dd = d(-2 + i); days[dd] = {}; row.forEach((v, j) => { days[dd]["g" + (j + 1)] = v === 1; }); });
+    }
+    if (!["upcoming", "catchup", "today", "lostgoals", "showcase"].includes(scenario)) {
       pattern[uid].forEach((row, i) => {
         const day = d(-5 + i);
         days[day] = {};
@@ -51,7 +64,7 @@ function seed(scenario, now) {
     }
     store.players[uid] = { name: names[uid], joinedAt: joined, targets: targets[uid], days };
   }
-  if (!["upcoming", "catchup", "today", "lostgoals"].includes(scenario)) {
+  if (!["upcoming", "catchup", "today", "lostgoals", "showcase"].includes(scenario)) {
     const chWithId = Object.assign({ id: "c1" }, ch);
     for (let i = -5; i <= -2; i++) store.results[d(i)] = L.buildResult(store.players, chWithId, d(i), now);
   }
