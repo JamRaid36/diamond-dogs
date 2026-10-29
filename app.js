@@ -117,6 +117,7 @@ function renderInner() {
     quickLinks(),
     t < ch.start ? renderUpcoming(ch) : t > ch.end ? renderFinished(ch) : renderYou(ch),
     state.chId ? null : renderUpNext(ch),
+    t < ch.start && state.ms?.owner ? inviteCard() : null,
     t < ch.start ? renderSignoff(ch) : null,
     renderPot(ch),
     renderPack(ch),
@@ -1121,8 +1122,8 @@ function openMembers() {
           if (emails.includes(em)) return toast("Already in.");
           try { await state.backend.setMembers(emails.concat(em)); toast("Added. Send them the link."); openSheet(build); } catch (e) { console.error(e); toast("That didn't save."); }
         } }, "Add"))),
-      h("div", { class: "field" }, h("button", { class: "btn blaze", type: "button", onclick: sendInvite }, "Send the invite"),
-        h("p", { class: "seg-note" }, "Opens your share sheet with a ready message: the link, how to sign in, and how to put it on their home screen (iPhone and Android). Add their email above first.")),
+      h("div", { class: "field" }, h("label", {}, "The invite"), inviteBox(),
+        h("p", { class: "seg-note" }, "Copy it into a text to the pack. Add their emails above first.")),
       h("div", { class: "sheet-actions" }, h("button", { class: "btn ghost", type: "button", onclick: () => openSettings(state._settingsId) }, "Back")),
     ];
   };
@@ -1266,19 +1267,36 @@ function inviteText() {
     "iPhone: open the link in Safari, tap Share (square with the up arrow), then “Add to Home Screen”.",
     "Android: open the link in Chrome, tap ⋮ (top right), then “Add to Home screen” or “Install app”.",
     "",
-    ...(() => { const c = current(); const t = L.treasurerOf(c); return c?.pot?.buyIn > 0 ? ["", `Buy-in: ${money(c.pot.buyIn)}` + (t ? `, to ${state.players?.[t]?.name || "the treasurer"}${c.pot.payHow ? ` (${c.pot.payHow})` : ""}.` : ". I'll say who to pay.")] : []; })(),
-    "",
+    ...(() => { const c = current(); const t = L.treasurerOf(c); return c?.pot?.buyIn > 0 ? [`Buy-in: ${money(c.pot.buyIn)}` + (t ? `, to ${state.players?.[t]?.name || "the treasurer"}${c.pot.payHow ? ` (${c.pot.payHow})` : ""}.` : ". I'll say who to pay."), ""] : []; })(),
     "Before it starts: set your own goals in the app, then check everyone else's (Fair or Too easy).",
     "Every day: tick your goals. Miss one and it's a strike. Tap “Rules” or “How it works” in the app for the rest.",
   ].join("\n");
 }
-async function sendInvite() {
-  const text = inviteText();
-  try {
-    if (navigator.share) { await navigator.share({ title: "Alpha Pack", text }); return; }
-  } catch (e) { if (e && e.name === "AbortError") return; }
-  try { await navigator.clipboard.writeText(text); toast("Invite copied. Paste it in a text."); }
-  catch { state._inviteShown = true; openSheet(() => [h("h2", { id: "sheetTitle" }, "The invite"), h("p", { class: "sub" }, "Copy this and text it."), h("pre", { class: "invite-text" }, text), h("div", { class: "sheet-actions" }, closeBtn())]); }
+// The invite as text you can see, copy and paste into a group text, or share from the phone's share sheet.
+// navigator.share needs a tap and https; canceling it rejects with AbortError, which is not a failure.
+async function copyInvite() {
+  try { await navigator.clipboard.writeText(inviteText()); toast("Invite copied. Paste it into a text to the pack."); }
+  catch { const box = document.getElementById("inviteText"); if (box) { const r = document.createRange(); r.selectNodeContents(box); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); } toast("Couldn't copy automatically. It's selected: tap Copy."); }
+}
+async function shareInvite() {
+  try { await navigator.share({ title: "Alpha Pack", text: inviteText() }); }
+  catch (e) { if (e && e.name === "AbortError") return; copyInvite(); }
+}
+async function sendInvite() { return navigator.share ? shareInvite() : copyInvite(); }
+function inviteBox() {
+  return h("div", { class: "invite" },
+    h("pre", { class: "invite-text", id: "inviteText", tabindex: "0", "aria-label": "Invite message" }, inviteText()),
+    h("div", { class: "callout-actions" },
+      h("button", { class: "btn blaze", type: "button", onclick: copyInvite }, "Copy invite"),
+      navigator.share ? h("button", { class: "mini-btn", type: "button", onclick: shareInvite }, "Share…") : null));
+}
+// Main screen, owner only, before the start: everything the pack needs, in one message.
+function inviteCard() {
+  return h("section", { class: "callout", "aria-labelledby": "invH" },
+    h("h2", { id: "invH" }, "Invite the pack"),
+    h("p", {}, "Copy this and text it to the guys. It has the link, how to sign in, how to put the app on their home screen (iPhone and Android), who to pay, and what to do before it starts."),
+    inviteBox(),
+    h("p", { class: "seg-note" }, "Add each player's Google email under Menu, People in the group, first. The link only opens for emails on the list."));
 }
 
 // Owner only: the fewest goals each player needs. A day with fewer counts as a strike.
