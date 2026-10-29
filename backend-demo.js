@@ -46,6 +46,18 @@ function seed(scenario, now) {
     ch.playerGoals = { sam: { s1: g("Protein 180 g", 1), s2: g("Read a chapter", 2), s3: g("Lift", 3, 3) }, riley: { r1: g("Drink water", 1) } };
     ch.pot = { buyIn: 100, strikes: 3, comeback: 50, paid: {} };
   }
+  if (scenario === "invited") { // Jason's real season 1 setup, for testers (Tabitha): next Saturday, 3 weeks, his goals and pot
+    const sat = d((6 - new Date(now).getDay() + 7) % 7 || 7);
+    ch.name = "Alpha Pack Season 1"; ch.start = sat; ch.end = L.addDays(sat, 20); ch.minGoals = 3;
+    ch.houseRules = "Cheat Meals require a photo in trash talk";
+    const g = (t, i, pw) => ({ text: t, addedOn: sat, closedOn: null, order: i, perWeek: pw || null });
+    ch.playerGoals = {
+      me: { j1: g("Protein 130 g", 1), j2: g("Lift", 2, 2), j3: g("Calories 2k or less", 3, 5), j4: g("Cardio/Walking", 4, 5) },
+      sam: { s1: g("Protein 180 g", 1), s2: g("Read a chapter", 2), s3: g("Lift", 3, 3) },
+      riley: { r1: g("10k steps", 1), r2: g("No soda", 2), r3: g("In bed by 11", 3, 5) },
+    };
+    ch.pot = { buyIn: 100, strikes: 2, comeback: 50, treasurer: "me", payHow: "Venmo (test version: don't pay!)", paid: { me: true } };
+  }
   if (scenario === "over") { ch.end = d(-2); ch.pot = { buyIn: 100, strikes: 3, comeback: 50, paid: {} }; } // final, not settled
   if (scenario === "lostgoals") { ch.start = d(-2); ch.createdAt = now; ch.goals = {}; }
   if (scenario === "today") { ch.start = today; ch.createdAt = now; Object.values(ch.goals).forEach((g) => { g.addedOn = today; }); }
@@ -104,7 +116,7 @@ export function createDemoBackend(scenario = "active", opts = {}) {
   if (scenario === "member" || scenario === "goalcheckm" || scenario === "treasurerm") user = { uid: "sam", email: "sam@example.com" }; // a player who isn't the owner
   // From the invite: signed out, on the list, never joined. Signing in is fake (no Google) and lands as a new player.
   const invited = scenario === "invited";
-  if (invited) { user = null; store.members.emails.push("you.invited@example.com"); store.challenges.c1.pot = Object.assign({}, store.challenges.c1.pot, { treasurer: "me", payHow: "https://venmo.com/u/example" }); }
+  if (invited) { user = null; store.members.emails.push("you.invited@example.com"); store.players.me.name = "Jay"; }
   if (scenario === "newplayer") { user = { uid: "newbie", email: "sam@example.com" }; store.members.emails.push("sam@example.com"); }
   const emit = (coll) => listeners[coll].forEach((cb) => cb(coll === "members" ? store.members : Object.assign({}, store[coll])));
   const wait = () => new Promise((r) => setTimeout(r, opts.latency ?? 120));
