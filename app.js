@@ -419,6 +419,13 @@ function ownerEditor(ch, uid, p) {
     onchange: (e) => { state.ownerDay = Object.assign({}, state.ownerDay, { [uid]: e.target.value }); render(); } },
     days.map((d) => h("option", { value: d }, d === t ? "Today" : fmtDay(d))));
   sel.value = day;
+  const sure = state.confirmRemove === uid;
+  const remove = h("button", { class: "mini-btn danger", type: "button", onclick: async () => {
+    if (!sure) { state.confirmRemove = uid; render(); return; }
+    state.confirmRemove = null;
+    try { await state.backend.deletePlayer(uid); toast(`${p.name || "They"} left the board. Remove their email in People too, or they can rejoin.`); }
+    catch (e) { console.error(e); toast("That didn't save."); }
+  } }, sure ? `Tap again: delete ${p.name || "them"} and all their ticks` : "Take off the board");
   return h("div", { class: "owner-edit" }, h("span", { class: "tlabel" }, "Owner: fix their ticks"), sel,
     h("div", { class: "owner-ticks" }, L.activeGoals(ch, day).map((g) => {
       const on = L.isDone(p, day, g.id);
@@ -428,13 +435,13 @@ function ownerEditor(ch, uid, p) {
         try { await state.backend.mergePlayer(uid, r.patch); toast(`${p.name || "Their"} ${g.text}: ${on ? "unticked" : "ticked"}.`); }
         catch (e) { console.error(e); toast("That didn't save. Only the owner can edit other players."); }
       } }, `${on ? "✓ " : ""}${g.text}`);
-    })));
+    })), remove);
 }
 
 // Owner only: bring back goals whose ticks still exist (ids found in players' days but missing from the challenge).
 const RECOVER_GUESS = { g1: ["Protein 130g", null], g2: ["Under 2,000 calories", 5], g3: ["Cardio or a walk", 5], g4: ["Resistance Training", 2], g5: ["Never over 3,000 calories", null] };
 function recoverField(ch) {
-  const orphans = L.orphanGoals(state.players, ch);
+  const orphans = L.orphanGoals(state.players, ch, challengeList());
   if (!orphans.length) return null;
   const items = orphans.map((o) => ({ id: o.id, text: (RECOVER_GUESS[o.id] || [""])[0], perWeek: (RECOVER_GUESS[o.id] || [null, null])[1] }));
   return h("div", { class: "catchup", role: "note" },
@@ -468,6 +475,35 @@ function datesField(ch) {
       } catch (e2) { console.error(e2); toast("That didn't save."); }
     } }, "Save dates"),
     h("p", { class: "seg-note" }, "Set the start up to a week back today, and everyone can tick those days until noon tomorrow."));
+}
+
+// Owner only: everything about the challenge itself, at the top of the menu.
+function ownerControls(ch) {
+  const t = today();
+  const name = h("input", { id: "editName", maxlength: "60", value: ch.name, "aria-label": "Challenge name" });
+  const end = L.endPlan(ch, t);
+  const sure = state.confirmEnd === ch.id;
+  return h("div", { class: "owner-block" },
+    h("div", { class: "owner-actions" },
+      h("button", { class: "mini-btn", type: "button", onclick: openMembers }, "People in the group"),
+      h("button", { class: "mini-btn", type: "button", onclick: openCreate }, "Start a new challenge")),
+    h("div", { class: "field" }, h("label", { for: "editName" }, "Name"), h("div", { style: "display:flex;gap:8px" }, name,
+      h("button", { class: "mini-btn", type: "button", style: "min-height:50px;flex:none", onclick: async () => {
+        const r = L.renamePatch(name.value);
+        if (r.error) return toast(r.error);
+        try { await state.backend.mergeChallenge(ch.id, r.patch); toast("Renamed."); } catch (e) { console.error(e); toast("That didn't save."); }
+      } }, "Save"))),
+    datesField(ch),
+    end.error ? null : h("div", { class: "field" },
+      h("button", { class: "mini-btn danger", type: "button", style: "min-height:44px", onclick: async () => {
+        if (!sure) { state.confirmEnd = ch.id; openSettings(); return; }
+        state.confirmEnd = null;
+        try {
+          if (end.remove) { await state.backend.deleteChallenge(ch.id); sheet.close(); toast("Removed. It hadn't started."); }
+          else { await state.backend.mergeChallenge(ch.id, end.patch); toast("Ends tonight. Today still counts, and the final board shows tomorrow."); }
+        } catch (e) { console.error(e); toast("That didn't save."); }
+      } }, sure ? (end.remove ? "Tap again to remove it" : "Tap again to end it tonight") : (end.remove ? "Cancel this challenge" : "End it early")),
+      h("p", { class: "seg-note" }, end.remove ? "It hasn't started, so nothing is lost." : "Today is the last day. Every tick so far stays, and the final standings show tomorrow.")));
 }
 
 // "Every day" or "N days a week". Values: "" = daily, "1".."6".
@@ -533,6 +569,7 @@ function closeBtn() { return h("button", { class: "btn ghost", type: "button", o
 
 function openCreate() {
   const t = today();
+  state._handoffFor = null;
   const goals = [{ text: "", perWeek: null }, { text: "", perWeek: null }, { text: "", perWeek: null }];
   let errors = {};
   const build = () => {
@@ -544,6 +581,7 @@ function openCreate() {
         h("input", { id: `chGoal${i}`, maxlength: "60", value: g.text, placeholder: ["Protein 200g", "Lift", "No sugar"][i] || "Another goal", "aria-label": `Goal ${i + 1}`, oninput: (e) => { goals[i].text = e.target.value; } }),
         cadenceSelect(`chCad${i}`, g.perWeek, (v) => { goals[i].perWeek = v; }, `How often for goal ${i + 1}`)))));
     const err = (k) => errors[k] ? h("p", { class: "err" }, errors[k]) : null;
+    const plan = state._handoffFor ? L.handoffPlan(challengeList(), state._handoffFor) : [];
     const keep = () => { state._draftName = name.value; state._draftStart = start.value; state._draftEnd = end.value; };
     return [
       h("h2", { id: "sheetTitle" }, "New challenge"),
@@ -552,19 +590,25 @@ function openCreate() {
       h("div", { class: "row2" }, h("div", { class: "field" }, h("label", { for: "chStart" }, "Starts"), start, err("start")), h("div", { class: "field" }, h("label", { for: "chEnd" }, "Ends"), end, err("end"))),
       h("div", { class: "field", style: "margin-bottom:6px" }, h("label", {}, "Daily goals"), err("goals")), list,
       h("button", { class: "mini-btn", type: "button", disabled: goals.length >= L.MAX_GOALS, onclick: () => { keep(); goals.push({ text: "", perWeek: null }); openSheet(build); document.getElementById(`chGoal${goals.length - 1}`)?.focus(); } }, "Add another goal"),
+      plan.length ? h("div", { class: "lockline", role: "note" }, h("span", {}, plan.map((x) => x.remove
+        ? `"${x.name}" hasn't started yet, so it gets removed. `
+        : `"${x.name}" ends ${fmtDay(x.patch.end, { weekday: "long", month: "short", day: "numeric" })}. Its ticks and standings stay. `).join(""))) : null,
       h("div", { class: "sheet-actions", style: "margin-top:18px" }, closeBtn(), h("button", { class: "btn blaze", type: "button", onclick: async (e) => {
         keep();
-        const v = L.validateChallenge({ name: name.value, start: start.value, end: end.value, goals }, t);
+        const v = L.validateChallenge({ name: name.value, start: start.value, end: end.value, goals }, t, now());
         errors = v.errors;
         if (!v.ok) { openSheet(build); return; }
+        const handoff = L.handoffPlan(challengeList(), start.value);
+        if (handoff.length && state._handoffFor !== start.value) { state._handoffFor = start.value; openSheet(build); return; } // show what it replaces first
         e.target.disabled = true;
         try {
           await state.backend.createChallenge(Object.assign(v.value, { createdBy: state.user.uid, createdAt: now() }));
-          state._draftName = state._draftStart = state._draftEnd = null;
+          for (const x of handoff) { if (x.remove) await state.backend.deleteChallenge(x.id); else await state.backend.mergeChallenge(x.id, x.patch); }
+          state._draftName = state._draftStart = state._draftEnd = state._handoffFor = null;
           sheet.close();
           toast("Challenge set. Go get it.");
         } catch (e2) { console.error(e2); e.target.disabled = false; toast("That didn't save. Try again."); }
-      } }, "Start it")),
+      } }, plan.length && state._handoffFor === start.value ? "Tap again to start it" : "Start it")),
     ];
   };
   openSheet(build);
@@ -616,6 +660,7 @@ function openSettings() {
     return [
       h("h2", { id: "sheetTitle" }, ch.name),
       h("p", { class: "sub" }, `${fmtDay(ch.start, { month: "short", day: "numeric" })} – ${fmtDay(ch.end, { month: "short", day: "numeric", year: "numeric" })}`),
+      owner ? ownerControls(ch) : null,
       owner && L.isLocked(ch, t) ? h("div", { class: "lockline" }, "You're the owner, so you can change anything here. Edits apply to everyone, and past days re-score on the live screens. Days already posted to the board keep their post.") : null,
       locked ? (() => { const l = h("div", { class: "lockline" }); l.innerHTML = SVG.lock; l.append("Goals are locked in. You can add a goal from today, or close one: it stops counting today and its history stays."); return l; })() : null,
       h("div", { style: "display:grid;gap:10px;margin-bottom:16px" }, items),
@@ -626,9 +671,7 @@ function openSettings() {
           try { await state.backend.mergeChallenge(ch.id, r.patch); toast(locked ? "Goal added. It counts from today." : "Goal added."); } catch (e2) { console.error(e2); toast("That didn't save."); }
         } }, "Add"))),
       owner ? recoverField(ch) : null,
-      owner ? datesField(ch) : null,
-      state.ms?.owner ? h("button", { class: "mini-btn", type: "button", style: "margin-bottom:12px", onclick: openMembers }, "Who's in the group") : null,
-      h("div", { class: "sheet-actions" }, closeBtn(), t > ch.end ? h("button", { class: "btn blaze", type: "button", onclick: openCreate }, "New challenge") : null),
+      h("div", { class: "sheet-actions" }, closeBtn(), t > ch.end && !owner ? h("button", { class: "btn blaze", type: "button", onclick: openCreate }, "New challenge") : null),
     ];
   };
   openSheet(build);

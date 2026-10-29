@@ -106,6 +106,8 @@ export function createDemoBackend(scenario = "active", opts = {}) {
     watch(coll, cb) { listeners[coll].add(cb); setTimeout(() => cb(coll === "members" ? store.members : Object.assign({}, store[coll])), opts.latency ?? 120); return () => listeners[coll].delete(cb); },
     async mergePlayer(uid, patch) { await wait(); if (uid !== user?.uid && store.members.ownerEmail !== user?.email) throw new Error("not yours"); store.players[uid] = deepMerge(store.players[uid] || {}, patch); emit("players"); },
     async mergeChallenge(id, patch) { patch = L.pruneEmpty(patch); await wait(); store.challenges[id] = deepMerge(store.challenges[id] || {}, patch); emit("challenges"); },
+    async deleteChallenge(id) { await wait(); if (store.members.ownerEmail !== user?.email) throw new Error("owner only"); delete store.challenges[id]; emit("challenges"); },
+    async deletePlayer(uid) { await wait(); if (store.members.ownerEmail !== user?.email) throw new Error("owner only"); delete store.players[uid]; emit("players"); },
     async createChallenge(data) { await wait(); const id = "c" + Date.now().toString(36); store.challenges[id] = data; emit("challenges"); return id; },
     async createResult(date, data) { await wait(); if (store.results[date]) return false; store.results[date] = data; emit("results"); return true; },
     async postMessage(data) { await wait(); if (data.uid !== user?.uid) throw new Error("not yours"); store.chat["m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)] = data; emit("chat"); },

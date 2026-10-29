@@ -72,6 +72,9 @@ export function createFirebaseBackend(config) {
     async mergePlayer(uid, patch) { await setDoc(doc(db, "players", uid), patch, { merge: true }); },
     // pruneEmpty: a merge write with an empty map replaces the field; never send one to a challenge.
     async mergeChallenge(id, patch) { await setDoc(doc(db, "challenges", id), window.DDLogic.pruneEmpty(patch), { merge: true }); },
+    // Owner only (the rules refuse anyone else).
+    async deleteChallenge(id) { await deleteDoc(doc(db, "challenges", id)); },
+    async deletePlayer(uid) { await deleteDoc(doc(db, "players", uid)); },
     async createChallenge(data) { const ref = await addDoc(collection(db, "challenges"), data); return ref.id; },
     // Create-only: the rules refuse an update, so a second opener's write fails and is ignored.
     async createResult(date, data) {

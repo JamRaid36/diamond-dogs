@@ -239,7 +239,7 @@
 
   // The challenge to show: the one running today (latest start wins), else the next upcoming, else the last ended.
   function currentChallenge(list, today) {
-    var all = (list || []).slice().sort(function (a, b) { return a.start < b.start ? 1 : -1; });
+    var all = (list || []).slice().sort(function (a, b) { return a.start !== b.start ? (a.start < b.start ? 1 : -1) : (b.createdAt || 0) - (a.createdAt || 0); });
     var running = all.filter(function (c) { return inChallenge(c, today); });
     if (running.length) return running[0];
     var upcoming = all.filter(function (c) { return c.start > today; }).sort(function (a, b) { return a.start < b.start ? -1 : 1; });
@@ -266,7 +266,7 @@
   }
 
   // Validate a new challenge form. Goals are strings or {text, perWeek}. Returns {ok, errors, value}.
-  function validateChallenge(input, today) {
+  function validateChallenge(input, today, seed) {
     var errors = {};
     var name = cleanText(input.name);
     var goals = (input.goals || []).map(function (g) {
@@ -284,7 +284,8 @@
     var value = null;
     if (ok) {
       var g = {};
-      goals.forEach(function (x, i) { g["g" + (i + 1)] = { text: x.text, addedOn: input.start, closedOn: null, order: i + 1, perWeek: x.perWeek }; });
+      var prefix = seed == null ? "g" : goalId(seed) + "_";
+      goals.forEach(function (x, i) { g[prefix + (i + 1)] = { text: x.text, addedOn: input.start, closedOn: null, order: i + 1, perWeek: x.perWeek }; });
       value = { name: name, start: input.start, end: input.end, goals: g };
     }
     return { ok: ok, errors: errors, value: value };
@@ -364,6 +365,28 @@
     return { patch: patch };
   }
 
+  // Owner only: rename the challenge.
+  function renamePatch(name) {
+    var t = cleanText(name).slice(0, 60);
+    if (!t) return { error: "Give it a name." };
+    return { patch: { name: t } };
+  }
+
+  // Owner only: end early. A running challenge ends tonight (today still counts); one that hasn't started is removed.
+  function endPlan(ch, today) {
+    if (today < ch.start) return { remove: true };
+    if (ch.end <= today) return { error: ch.end < today ? "It's already over." : "It already ends tonight." };
+    return { patch: { end: today } };
+  }
+
+  // A new challenge starting on `start` takes over: anything still running then ends the day before,
+  // and anything that would start on or after it is removed. Days never overlap, so ticks never get shared.
+  function handoffPlan(list, start) {
+    return (list || []).filter(function (c) { return c.end >= start; }).map(function (c) {
+      return c.start < start ? { id: c.id, name: c.name, patch: { end: addDays(start, -1) } } : { id: c.id, name: c.name, remove: true };
+    });
+  }
+
   // Firestore merge writes an empty map as-is, wiping what was there. Drop empty maps before any merge write.
   function pruneEmpty(obj) {
     var out = {};
@@ -378,12 +401,14 @@
   }
 
   // Goal ids that players have ticks for but the challenge no longer lists (e.g. after a bad write). Newest tick last.
-  function orphanGoals(players, ch) {
-    var known = (ch && ch.goals) || {};
+  function orphanGoals(players, ch, all) {
+    var known = Object.assign({}, (ch && ch.goals) || {}); // ids of every challenge: another challenge's goals aren't missing
+    (all || []).forEach(function (c) { Object.assign(known, c.goals || {}); });
     var found = {};
     Object.keys(players || {}).forEach(function (uid) {
       var days = (players[uid] && players[uid].days) || {};
       Object.keys(days).forEach(function (d) {
+        if (d < ch.start || d > ch.end) return;
         Object.keys(days[d] || {}).forEach(function (id) {
           if (known[id]) return;
           var f = found[id] || (found[id] = { id: id, days: [], ticks: 0 });
@@ -449,6 +474,7 @@
     pacificDate: pacificDate, pacificHour: pacificHour, addDays: addDays, daysBetween: daysBetween, isDate: isDate,
     inChallenge: inChallenge, goalList: goalList, activeGoals: activeGoals, isLocked: isLocked, isDone: isDone,
     dayScore: dayScore, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
+    renamePatch: renamePatch, endPlan: endPlan, handoffPlan: handoffPlan,
     catchUpOpen: catchUpOpen, pruneEmpty: pruneEmpty, orphanGoals: orphanGoals, recoverGoalsPatch: recoverGoalsPatch, ownerTickPatch: ownerTickPatch, datesPatch: datesPatch, canMoveStart: canMoveStart, moveStartPatch: moveStartPatch, catchUpClosesMs: catchUpClosesMs, editableDates: editableDates, MAX_BACKDATE: MAX_BACKDATE,
     resultsDue: resultsDue, resultId: resultId, buildResult: buildResult, joinedBy: joinedBy,
     currentChallenge: currentChallenge, cleanText: cleanText, validateChallenge: validateChallenge,
