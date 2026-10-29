@@ -118,7 +118,6 @@ function renderInner() {
     quickLinks(),
     t < ch.start ? renderUpcoming(ch) : t > ch.end ? renderFinished(ch) : renderYou(ch),
     state.chId ? null : renderUpNext(ch),
-    t < ch.start && state.ms?.owner ? inviteCard() : null,
     t < ch.start ? renderSignoff(ch) : null,
     renderPot(ch),
     renderPackPoints(ch),
@@ -1270,9 +1269,22 @@ function welcomeCard() {
 }
 
 function quickLinks() {
-  return h("nav", { class: "quick", "aria-label": "Rules and help" },
-    h("button", { class: "quick-btn", type: "button", onclick: () => openRules() }, h("span", { "aria-hidden": "true" }, "⚖"), "Rules"),
-    h("button", { class: "quick-btn", type: "button", onclick: () => openHelp() }, h("span", { "aria-hidden": "true" }, "?"), "How it works"));
+  const owner = !!state.ms?.owner;
+  return h("nav", { class: "quick" + (owner ? " three" : ""), "aria-label": "Rules, help and invite" },
+    h("button", { class: "quick-btn", type: "button", onclick: () => openRules() }, h("span", { "aria-hidden": "true" }, "\u2696"), "Rules"),
+    h("button", { class: "quick-btn", type: "button", onclick: () => openHelp() }, h("span", { "aria-hidden": "true" }, "?"), owner ? "Help" : "How it works"),
+    // Owner: the invite lives behind a pill (Jason 2026-10-29), not a big card on the main screen.
+    owner ? h("button", { class: "quick-btn", type: "button", onclick: openInvite }, h("span", { "aria-hidden": "true" }, "+"), "Invite") : null);
+}
+function openInvite() {
+  state._sheetIs = "invite";
+  openSheet(() => [
+    h("h2", { id: "sheetTitle" }, "Invite the pack"),
+    h("p", { class: "sub" }, "Copy it and text it to the guys. The app teaches them the rest."),
+    inviteBox(),
+    h("p", { class: "seg-note" }, "Add each player's Google email first (Menu, People in the group). The link only opens for emails on the list."),
+    h("div", { class: "sheet-actions" }, h("button", { class: "btn ghost", type: "button", onclick: openMembers }, "People in the group"), closeBtn()),
+  ]);
 }
 
 // The Rules page: written from the challenge's own settings, so it can never drift from what the app scores.
@@ -1384,14 +1396,6 @@ function inviteBox() {
     h("div", { class: "callout-actions" },
       h("button", { class: "btn blaze", type: "button", onclick: copyInvite }, "Copy invite"),
       navigator.share ? h("button", { class: "mini-btn", type: "button", onclick: shareInvite }, "Share…") : null));
-}
-// Main screen, owner only, before the start: everything the pack needs, in one message.
-function inviteCard() {
-  return h("section", { class: "callout", "aria-labelledby": "invH" },
-    h("h2", { id: "invH" }, "Invite the pack"),
-    h("p", {}, "Copy it and text it to the guys. The app teaches them the rest."),
-    inviteBox(),
-    h("p", { class: "seg-note" }, "Add each player's Google email under Menu, People in the group, first. The link only opens for emails on the list."));
 }
 
 // Owner only: the fewest goals each player needs. A day with fewer counts as a strike.
