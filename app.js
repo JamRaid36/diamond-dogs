@@ -91,6 +91,7 @@ function renderInner() {
   $("#menuBtn").hidden = true;
   $("#helpBtn").hidden = !s.backend;
   if (!s.backend) return renderNoConfig();
+  if (needsInstallGate()) return renderInstallGate();
   if (s.user === null) return renderSignIn();
   if (!s.ms) return renderLoading();
   if (s.ms.setupNeeded) return renderSetupGroup();
@@ -155,6 +156,25 @@ function gate(title, sub, ...rest) {
     ? [h("img", { class: "gate-badge", src: "logo-96.png", alt: "", width: "96", height: "78" }), h("h1", { class: "big" }, title[0], h("span", {}, title[1]))]
     : [h("h1", { class: "hero-h" }, h("img", { class: "hero-logo", src: "logo-hero.webp", alt: "Alpha Pack", width: "720", height: "582" }))];
   app.replaceChildren(demoBanner() || "", h("section", { class: "gate" + (title ? "" : " hero") }, ...head, h("p", {}, sub), ...rest));
+}
+
+// New people on a phone put it on the home screen BEFORE signing in (Jason 2026-10-29). On iPhone the home-screen app
+// doesn't share Safari's sign-in, so this order saves them signing in twice. Opening from the home screen
+// (standalone) is the proof: no checkbox to fake. A player already signed in is never gated. "Skip for now" is the escape hatch.
+function needsInstallGate() {
+  if (standalone() || seen("installSkip") || phone() === "other") return false;
+  if (state.backend?.mode === "demo" && new URLSearchParams(location.search).get("demo") !== "invited") return false; // demo: only the new-player walkthrough
+  return state.user === null || (state.ms?.member && state.players && !me());
+}
+function inAppBrowser() { return /FBAN|FBAV|Instagram|Line\/|LinkedInApp|Snapchat|GSA\//.test(navigator.userAgent); }
+function renderInstallGate() {
+  const kind = phone();
+  gate(null, "Step 1 of 2: put Alpha Pack on your home screen. It opens like an app, and you'll sign in there.",
+    inAppBrowser() ? h("p", { class: "callout" }, h("b", {}, "First, open this in " + (kind === "ios" ? "Safari" : "Chrome") + ". "), "You're inside another app's browser, which can't add to the home screen. Tap the ⋯ or share menu and choose \u201cOpen in " + (kind === "ios" ? "Safari" : "Chrome") + "\u201d.") : null,
+    h("div", { class: "callout install-gate" }, h("h2", {}, kind === "ios" ? "On your iPhone" : "On your Android"),
+      h("ol", { class: "steps" }, STEPS[kind].slice(0, 3).map((x) => h("li", {}, x))),
+      h("p", { class: "ig-next" }, h("b", {}, "Step 2: "), "close this, then open Alpha Pack from your home screen and sign in with Google.")),
+    h("button", { class: "link-btn", type: "button", onclick: () => { markSeen("installSkip"); render(); } }, "Skip for now (I'll add it later)"));
 }
 
 function renderNoConfig() {
