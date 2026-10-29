@@ -1256,21 +1256,18 @@ function openHelp(open = null) {
 }
 
 // The invite: one message that answers every first-day question.
+// Short on purpose: a wall of text scares people off. The app does the teaching: the install card shows their own
+// phone's home-screen steps on first open, and the welcome card covers goals and strikes.
 function inviteText() {
+  const c = current();
+  const t = L.treasurerOf(c);
+  const pay = c?.pot?.buyIn > 0 ? `Buy-in is ${money(c.pot.buyIn)}` + (t ? `, to ${state.players?.[t]?.name || "the treasurer"}${c.pot.payHow ? ` (${c.pot.payHow})` : ""}.` : ".") : null;
   return [
     "You're in the Alpha Pack \u{1F43A}\u{1F4AA}",
-    "",
-    "Open: " + appLink(),
-    "Sign in with Google, using this email (the one I added). Pick the name the guys will see, and you're in.",
-    "",
-    "Make it an app on your home screen:",
-    "iPhone: open the link in Safari, tap Share (square with the up arrow), then “Add to Home Screen”.",
-    "Android: open the link in Chrome, tap ⋮ (top right), then “Add to Home screen” or “Install app”.",
-    "",
-    ...(() => { const c = current(); const t = L.treasurerOf(c); return c?.pot?.buyIn > 0 ? [`Buy-in: ${money(c.pot.buyIn)}` + (t ? `, to ${state.players?.[t]?.name || "the treasurer"}${c.pot.payHow ? ` (${c.pot.payHow})` : ""}.` : ". I'll say who to pay."), ""] : []; })(),
-    "Before it starts: set your own goals in the app, then check everyone else's (Fair or Too easy).",
-    "Every day: tick your goals. Miss one and it's a strike. Tap “Rules” or “How it works” in the app for the rest.",
-  ].join("\n");
+    appLink(),
+    "Sign in with Google using this email. The app walks you through the rest, even putting it on your home screen.",
+    pay,
+  ].filter(Boolean).join("\n");
 }
 // The invite as text you can see, copy and paste into a group text, or share from the phone's share sheet.
 // navigator.share needs a tap and https; canceling it rejects with AbortError, which is not a failure.
@@ -1294,7 +1291,7 @@ function inviteBox() {
 function inviteCard() {
   return h("section", { class: "callout", "aria-labelledby": "invH" },
     h("h2", { id: "invH" }, "Invite the pack"),
-    h("p", {}, "Copy this and text it to the guys. It has the link, how to sign in, how to put the app on their home screen (iPhone and Android), who to pay, and what to do before it starts."),
+    h("p", {}, "Copy it and text it to the guys. The app teaches them the rest."),
     inviteBox(),
     h("p", { class: "seg-note" }, "Add each player's Google email under Menu, People in the group, first. The link only opens for emails on the list."));
 }
