@@ -120,6 +120,7 @@ function renderInner() {
     t < ch.start && state.ms?.owner ? inviteCard() : null,
     t < ch.start ? renderSignoff(ch) : null,
     renderPot(ch),
+    renderPackPoints(ch),
     renderPack(ch),
     renderChat(),
     renderGrid(ch),
@@ -474,6 +475,28 @@ function renderSignoff(ch) {
         `Each list needs at least ${so.min} goals. A day with fewer counts as a strike.`,
         "Fair = the list is a real challenge for him. Too easy = it isn't. Say why in Trash Talk.",
         "Not approved by the start? The owner decides.",
+      ])));
+}
+
+// Pack goals: group goals score the pack together. Tallied from everyone's ticks, nothing to enter.
+function renderPackPoints(ch) {
+  const gs = L.groupScore(state.players, ch, now());
+  if (!gs) return null;
+  const started = today() >= ch.start;
+  return h("section", { "aria-labelledby": "ppH" },
+    h("div", { class: "sec-head" }, h("h2", { id: "ppH" }, "Pack goals"), h("span", { class: "note" }, "Everyone has to hit these")),
+    h("div", { class: "pp" },
+      h("div", { class: "pot-top" }, h("div", { class: "pot-amt" }, String(gs.total), h("small", {}, gs.possible ? `pack point${gs.total === 1 ? "" : "s"} of ${gs.possible}` : "pack points")),
+        h("div", { class: "pot-each" }, started ? "One point for every day or week the whole pack hits a group goal." : `Scoring starts ${fmtDay(ch.start, { weekday: "long" })}.`)),
+      h("ul", { class: "pp-list" }, gs.goals.map((g) => h("li", {},
+        h("div", { class: "pp-head" }, h("b", {}, g.text), h("small", {}, ` · ${g.cadence}`), h("span", { class: "pp-pts" }, `${g.points} pt${g.points === 1 ? "" : "s"}`)),
+        g.current ? h("p", { class: "pp-now" }, `${g.current.label[0].toUpperCase()}${g.current.label.slice(1)}: ${g.current.done} of ${g.current.of} there`,
+          g.current.behind.length ? h("span", {}, (g.weekly ? " · " : " · still to go: ") + g.current.behind.map((x) => { const me = x.uid === state.user.uid; return `${me ? "you" : x.name}${g.weekly ? ` ${me ? "need" : "needs"} ${x.left} more` : ""}`; }).join(", ")) : h("span", { class: "ok" }, " · the whole pack!")) : null))),
+      help("How pack goals work", [
+        "A group goal is on everyone's list. It also scores the pack as a team.",
+        "Daily group goal: 1 pack point for each day everyone did it. Weekly: 1 point for each week everyone hit the target.",
+        "It counts itself from everyone's ticks once the day or week locks. Days off and days before someone joined don't count against the pack.",
+        "Pack points are bragging rights for now. They don't change the pot.",
       ])));
 }
 
@@ -1283,6 +1306,7 @@ function openHelp(open = null) {
     q("pot", "How does the pot work?", p("Everyone pays the buy-in up front to the treasurer (the pot shows who and how). Only the treasurer marks who paid. Too many strikes and you're out. Whoever is still in at the end splits it. If nobody makes it, everyone gets their money back.")),
     q("comeback", "I'm out. Now what?", p("Keep going. If the challenge has a comeback, finish without another strike and you get that amount back. You can't win the pot that way, but it cuts your loss.")),
     q("pardon", "Can a strike be forgiven?", p("Yes. Under The Pot, Your strikes, tap Ask for a pardon. The others vote. More than half of them saying yes wipes it. You can't vote on your own.")),
+    q("packpoints", "What are pack points?", p("Group goals score the pack as a team: 1 point for each day (or week) everyone hits one. The app counts it from everyone's ticks. Bragging rights for now; they don't change the pot.")),
     q("board", "What's the Daily Board?", p("Each day's final scores, posted once the day locks at noon. The top of the list is a live view of today.")),
     q("chat", "What's Trash Talk?", p("A group message board. Everyone in the group sees it. You can delete your own posts.")),
     q("home", "How do I put it on my home screen?",

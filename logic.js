@@ -524,6 +524,45 @@
     return { patch: patch };
   }
 
+  // ---------- pack points: group goals score the group together ----------
+  // A daily group goal earns the pack 1 point for each locked day EVERYONE on the record did it; a weekly one, 1 point
+  // for each locked week everyone met it. Computed from the ticks, nothing to enter. Days off and pre-join days are
+  // skipped exactly like strikes. The open day/week shows progress: who's still short and by how much.
+  function groupScore(players, ch, nowMs) {
+    players = players || {};
+    if (!ch || !isDate(ch.start) || !isDate(ch.end)) return null;
+    var goals = goalList(ch).filter(function (g) { return !g.personal; });
+    if (!goals.length) return null;
+    var entrants = Object.keys(players).filter(function (u) { return joinedBy(players[u], ch.end); });
+    var today = pacificDate(nowMs);
+    var name = function (u) { return (players[u] && players[u].name) || "Player"; };
+    var out = goals.map(function (g) {
+      var points = 0, of = 0, current = null;
+      if (!isWeekly(g)) {
+        for (var d = ch.start; d <= ch.end && d <= today; d = addDays(d, 1)) {
+          if (isSkip(ch, d) || !(g.addedOn <= d && (!g.closedOn || d < g.closedOn))) continue;
+          var who = entrants.filter(function (u) { return onRecord(players[u], ch, d); });
+          if (!who.length) continue;
+          var missing = who.filter(function (u) { return !isDone(players[u], d, g.id); });
+          if (isFinal(d, nowMs, ch)) { of++; if (!missing.length) points++; }
+          else if (d === today || !current) current = { label: d === today ? "today" : "yesterday", done: who.length - missing.length, of: who.length, behind: missing.map(function (u) { return { uid: u, name: name(u), left: 1 }; }) };
+        }
+      } else {
+        for (var ws = weekStart(ch.start); ws <= ch.end && ws <= today; ws = addDays(ws, 7)) {
+          var last = addDays(ws, 6) < ch.end ? addDays(ws, 6) : ch.end;
+          var rows = entrants.map(function (u) { return { u: u, pr: weekProgress(players[u], chFor(ch, u), g, last < today ? last : today) }; })
+            .filter(function (r) { return r.pr.need > 0; });
+          if (!rows.length) continue;
+          var short = rows.filter(function (r) { return r.pr.done < r.pr.need; });
+          if (isFinal(last, nowMs, ch)) { of++; if (!short.length) points++; }
+          else current = { label: "this week", done: rows.length - short.length, of: rows.length, behind: short.map(function (r) { return { uid: r.u, name: name(r.u), left: r.pr.need - r.pr.done }; }) };
+        }
+      }
+      return { id: g.id, text: g.text, cadence: cadenceLabel(g), weekly: isWeekly(g), points: points, of: of, current: current };
+    });
+    return { goals: out, total: out.reduce(function (a, g) { return a + g.points; }, 0), possible: out.reduce(function (a, g) { return a + g.of; }, 0) };
+  }
+
   // ---------- the pot ----------
   // A day is on a player's record from the day they joined, plus the catch-up days if they joined while catch-up was open.
   // (Catch-up is off now, but season 1 ran with it, so its records still score the way they did.)
@@ -828,7 +867,7 @@
     inChallenge: inChallenge, goalList: goalList, activeGoals: activeGoals, isLocked: isLocked, isDone: isDone,
     dayScore: dayScore, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
     strikesFor: strikesFor, potStatus: potStatus, potPatch: potPatch, paidPatch: paidPatch,
-    chFor: chFor, ownView: ownView, ownPatch: ownPatch, ownGoals: ownGoals, MAX_PERSONAL: MAX_PERSONAL, ownGoalsWithout: ownGoalsWithout, canAddOwn: canAddOwn,
+    groupScore: groupScore, chFor: chFor, ownView: ownView, ownPatch: ownPatch, ownGoals: ownGoals, MAX_PERSONAL: MAX_PERSONAL, ownGoalsWithout: ownGoalsWithout, canAddOwn: canAddOwn,
     minGoalsOn: minGoalsOn, goalSetKey: goalSetKey, signoffFor: signoffFor, signoffVotePatch: signoffVotePatch, ownerSignoffPatch: ownerSignoffPatch, minGoalsPatch: minGoalsPatch,
     strikeKey: strikeKey, appealPatch: appealPatch, votePatch: votePatch, houseRulesPatch: houseRulesPatch, MAX_RULES: MAX_RULES, treasurerPatch: treasurerPatch, treasurerOf: treasurerOf, MAX_PAYHOW: MAX_PAYHOW, paidOf: paidOf, ownerPaidPatch: ownerPaidPatch, settlePatch: settlePatch, unsettlePatch: unsettlePatch,
     isSkip: isSkip, skipDates: skipDates, skipPatch: skipPatch, renamePatch: renamePatch, endPlan: endPlan, handoffPlan: handoffPlan,

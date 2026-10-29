@@ -524,6 +524,17 @@ h1, h2, h3, .sheet h2, .callout h2 { text-wrap: balance; }
 .owner-goals { display: grid; gap: 6px; }
 .owner-goals .off-list li input { flex: 1; min-width: 0; min-height: 44px; border-radius: 12px; border: 1.5px solid var(--line); background: var(--bg-deep); color: var(--ink); padding: 0 10px; font-size: 16px; }
 .owner-goals > div input { flex: 1; min-width: 0; min-height: 44px; border-radius: 12px; border: 1.5px solid var(--line); background: var(--bg-deep); color: var(--ink); padding: 0 10px; font-size: 16px; }
+.pp { padding: 16px; border-radius: var(--r); border: 2px solid transparent;
+  background: linear-gradient(180deg, var(--surface-hi), var(--surface)) padding-box, linear-gradient(180deg, var(--ice), color-mix(in oklch, var(--ice) 40%, var(--line))) border-box;
+  box-shadow: var(--shadow), 0 0 40px -16px color-mix(in oklch, var(--ice) 70%, transparent); }
+.pp .pot-amt { background: linear-gradient(180deg, oklch(0.9 0.08 220), var(--ice)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.pp-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.pp-list li { padding: 10px 12px; border-radius: 12px; background: oklch(0 0 0 / 0.2); }
+.pp-head { display: flex; align-items: baseline; gap: 4px; }
+.pp-head small { color: var(--muted); }
+.pp-pts { margin-left: auto; font: 800 16px/1 var(--display); color: var(--blaze); }
+.pp-now { margin: 6px 0 0; font-size: 13px; color: var(--ink-soft); }
+.pp-now .ok { color: var(--hit); }
 .pay-btn { display: flex; width: 100%; margin-top: 10px; text-decoration: none; }
 .pay-line b { color: var(--ink); }
 .override { color: var(--warn); }
