@@ -53,8 +53,8 @@ function seed(scenario, now) {
     const g = (t, i, pw) => ({ text: t, addedOn: sat, closedOn: null, order: i, perWeek: pw || null });
     ch.playerGoals = {
       me: { j1: g("Protein 130 g", 1), j2: g("Lift", 2, 2), j3: g("Calories 2k or less", 3, 5), j4: g("Cardio/Walking", 4, 5) },
-      sam: { s1: g("Protein 180 g", 1), s2: g("Read a chapter", 2), s3: g("Lift", 3, 3) },
-      riley: { r1: g("10k steps", 1), r2: g("No soda", 2), r3: g("In bed by 11", 3, 5) },
+      sam: { s1: g("Read a chapter", 1), s2: g("Pray 15 min", 2), s3: g("Lift", 3, 3), s4: g("Call Mom", 4, 1) },
+      riley: { r1: g("No phone after 10", 1), r2: g("Practice guitar 20 min", 2, 5), r3: g("In bed by 11", 3, 5) },
     };
     ch.pot = { buyIn: 100, strikes: 2, comeback: 50, treasurer: "me", payHow: "Venmo (test version: don't pay!)", paid: { me: true } };
   }
