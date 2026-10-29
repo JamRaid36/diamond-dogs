@@ -129,7 +129,7 @@ function renderInner() {
   ].filter(Boolean));
 }
 
-const DEV_SCENES = [["active", "Mid-challenge (owner)"], ["goalcheck", "Before the start (owner)"], ["goalcheckm", "Before the start (player)"],
+const DEV_SCENES = [["invited", "New player, from the invite"], ["active", "Mid-challenge (owner)"], ["goalcheck", "Before the start (owner)"], ["goalcheckm", "Before the start (player)"],
   ["pardon", "Pardon vote"], ["treasurer", "Treasurer (owner view)"], ["treasurerm", "Treasurer (his view)"], ["over", "Finished, settle the pot"],
   ["member", "A player, not the owner"], ["empty", "Brand-new player"], ["signedout", "Signed out"]];
 function demoBanner() {
@@ -138,7 +138,9 @@ function demoBanner() {
     return h("div", { class: "dev-bar", role: "note" }, h("b", {}, "DEV PREVIEW"), " · sample players, nothing is saved. Check it, then tell Leo \u201cship it\u201d.",
       h("label", { class: "tlabel", for: "devScene", style: "display:block;margin-top:8px" }, "Try a situation"),
       (() => { const sel = h("select", { id: "devScene", class: "cad", onchange: (e) => { location.search = "?demo=" + e.target.value; } },
-        DEV_SCENES.map(([v, label]) => h("option", { value: v }, label))); sel.value = cur; return sel; })());
+        DEV_SCENES.map(([v, label]) => h("option", { value: v }, label))); sel.value = cur; return sel; })(),
+      cur === "invited" && !state.user ? h("div", { class: "dev-sms" }, h("small", {}, "The text they get from you:"), h("p", {}, inviteText())) : null,
+      cur === "invited" ? h("p", { class: "seg-note" }, state.user ? "You're signed in as a new player. Pick a name, set goals, then vote on the others in Goal check." : "Tap Sign in with Google below. It's fake here: no Google account, nothing saved.") : null);
   }
   if (state.backend?.mode !== "demo" || new URLSearchParams(location.search).has("plain")) return null;
   return h("p", { class: "demo-banner" }, "Demo with sample people. Nothing you tap here is saved.");
@@ -1220,7 +1222,7 @@ function stepsList(kind) { return h("ol", { class: "steps" }, STEPS[kind].map((x
 
 // Shown once per phone, in the browser only: an installed app never sees it.
 function installCard() {
-  if (standalone() || seen("installDone") || state.backend?.mode === "demo" && !new URLSearchParams(location.search).has("install")) return null;
+  if (standalone() || seen("installDone") || state.backend?.mode === "demo" && !new URLSearchParams(location.search).has("install") && new URLSearchParams(location.search).get("demo") !== "invited") return null;
   const kind = phone();
   if (kind === "other") return null;
   return h("section", { class: "callout", "aria-labelledby": "instH" },

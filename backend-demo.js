@@ -40,7 +40,7 @@ function seed(scenario, now) {
   if (scenario === "pot") ch.pot = { buyIn: 50, strikes: 2, paid: {} }; // riley has missed days: out at 2
   if (scenario === "pardon") ch.pot = { buyIn: 100, strikes: 3, comeback: 50, paid: { me: true } }; // riley asks a pardon, sam voted yes
   if (scenario === "treasurer" || scenario === "treasurerm") ch.pot = { buyIn: 100, strikes: 3, treasurer: "sam", payHow: "Venmo https://venmo.com/u/sam-t", paid: { sam: true } }; // sam holds the money; you own the app
-  if (scenario === "goalcheck" || scenario === "goalcheckm") { // upcoming, everyone sets their own: sam has 3, riley 1, you none
+  if (scenario === "goalcheck" || scenario === "goalcheckm" || scenario === "invited") { // upcoming, everyone sets their own: sam has 3, riley 1, you none
     ch.start = d(2); ch.end = d(23); ch.goals = {}; ch.minGoals = 3;
     const g = (t, i, pw) => ({ text: t, addedOn: d(2), closedOn: null, order: i, perWeek: pw || null });
     ch.playerGoals = { sam: { s1: g("Protein 180 g", 1), s2: g("Read a chapter", 2), s3: g("Lift", 3, 3) }, riley: { r1: g("Drink water", 1) } };
@@ -66,7 +66,7 @@ function seed(scenario, now) {
       const sample = { me: [[1, 1, 1, 0], [1, 1, 1, 1], [1, 0, 1, 0]], sam: [[1, 1, 0, 1], [1, 1, 1, 0], [1, 1, 1, 1]], riley: [[1, 0, 1, 0], [0, 1, 1, 1], [1, 0, 0, 0]] };
       sample[uid].forEach((row, i) => { const dd = d(-2 + i); days[dd] = {}; row.forEach((v, j) => { days[dd]["g" + (j + 1)] = v === 1; }); });
     }
-    if (!["upcoming", "catchup", "today", "lostgoals", "showcase", "goalcheck", "goalcheckm"].includes(scenario)) {
+    if (!["upcoming", "catchup", "today", "lostgoals", "showcase", "goalcheck", "goalcheckm", "invited"].includes(scenario)) {
       pattern[uid].forEach((row, i) => {
         const day = d(-5 + i);
         days[day] = {};
@@ -88,7 +88,7 @@ function seed(scenario, now) {
       : [["sam", "Six perfect days. Just saying."], ["riley", "Tomorrow. Watch."], ["me", "Talk is cheap, ticks aren't"]];
     lines.forEach(([uid, text], i) => { store.chat["s" + i] = { uid, text, at: t0 + i * 1800000 }; });
   }
-  if (!["upcoming", "catchup", "today", "lostgoals", "showcase", "goalcheck", "goalcheckm"].includes(scenario)) {
+  if (!["upcoming", "catchup", "today", "lostgoals", "showcase", "goalcheck", "goalcheckm", "invited"].includes(scenario)) {
     const chWithId = Object.assign({ id: "c1" }, ch);
     for (let i = -5; i <= -2; i++) store.results[d(i)] = L.buildResult(store.players, chWithId, d(i), now);
   }
@@ -102,6 +102,9 @@ export function createDemoBackend(scenario = "active", opts = {}) {
   const authListeners = new Set();
   let user = scenario === "signedout" ? null : { uid: scenario === "notmember" ? "stranger" : "me", email: scenario === "notmember" ? "stranger@example.com" : "you@example.com" };
   if (scenario === "member" || scenario === "goalcheckm" || scenario === "treasurerm") user = { uid: "sam", email: "sam@example.com" }; // a player who isn't the owner
+  // From the invite: signed out, on the list, never joined. Signing in is fake (no Google) and lands as a new player.
+  const invited = scenario === "invited";
+  if (invited) { user = null; store.members.emails.push("you.invited@example.com"); store.challenges.c1.pot = Object.assign({}, store.challenges.c1.pot, { treasurer: "me", payHow: "https://venmo.com/u/example" }); }
   if (scenario === "newplayer") { user = { uid: "newbie", email: "sam@example.com" }; store.members.emails.push("sam@example.com"); }
   const emit = (coll) => listeners[coll].forEach((cb) => cb(coll === "members" ? store.members : Object.assign({}, store[coll])));
   const wait = () => new Promise((r) => setTimeout(r, opts.latency ?? 120));
@@ -111,7 +114,7 @@ export function createDemoBackend(scenario = "active", opts = {}) {
     scenario,
     async init() { await wait(); },
     onAuth(cb) { authListeners.add(cb); setTimeout(() => cb(user), 0); return () => authListeners.delete(cb); },
-    async signIn() { await wait(); user = { uid: "me", email: "you@example.com" }; authListeners.forEach((cb) => cb(user)); },
+    async signIn() { await wait(); user = invited ? { uid: "invitee", email: "you.invited@example.com" } : { uid: "me", email: "you@example.com" }; authListeners.forEach((cb) => cb(user)); },
     async signOut() { user = null; authListeners.forEach((cb) => cb(null)); },
     async membership(u) {
       await wait();
