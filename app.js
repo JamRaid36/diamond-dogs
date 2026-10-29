@@ -84,18 +84,18 @@ function render() {
   if (t < ch.start) chip.textContent = `Starts ${fmtDay(ch.start, { month: "short", day: "numeric" })}`;
   else if (t > ch.end) chip.textContent = "Finished";
   else chip.textContent = `Day ${L.dayNumber(ch, t)} / ${L.challengeLength(ch)}`;
-  app.replaceChildren(
+  app.replaceChildren(...[ // sections that have nothing to show return null; never hand null to the DOM
     demoBanner(),
     t < ch.start ? renderUpcoming(ch) : t > ch.end ? renderFinished(ch) : renderYou(ch),
     renderPack(ch),
     renderGrid(ch),
     renderBoard(ch),
     renderFoot(),
-  );
+  ].filter(Boolean));
 }
 
 function demoBanner() {
-  if (state.backend?.mode !== "demo") return null;
+  if (state.backend?.mode !== "demo" || new URLSearchParams(location.search).has("plain")) return null;
   return h("p", { class: "demo-banner" }, "Demo with sample people. Nothing you tap here is saved.");
 }
 
@@ -332,7 +332,7 @@ function renderPack(ch) {
         if (pr.met) dot.innerHTML = SVG.check;
         return h("div", {}, dot, h("span", { class: "t" }, g.text, h("small", {}, ` · ${L.cadenceLabel(g)}${p.targets?.[g.id] ? " · " + p.targets[g.id] : ""}`)),
           h("span", { class: "wk" + (pr.met ? " met" : "") }, `${pr.done}/${pr.need}`));
-      })) : null);
+      }), state.ms?.owner && !isMe ? ownerEditor(ch, uid, p) : null) : null);
   });
   return h("section", { "aria-labelledby": "packH" },
     h("div", { class: "sec-head" }, h("h2", { id: "packH" }, "The Pack"), h("span", { class: "note" }, "Tap a tag for details")),
@@ -395,6 +395,48 @@ function renderFoot() {
   return h("p", { class: "fine", style: "color:var(--muted);font-size:13px;text-align:center;margin:0" },
     state.user?.email ? `Signed in as ${state.user.email} · ` : "",
     h("button", { class: "link-btn", type: "button", onclick: () => state.backend.signOut() }, "Sign out"));
+}
+
+// Owner only: correct a teammate's ticks on any day of the challenge.
+function ownerEditor(ch, uid, p) {
+  const t = today();
+  const last = t > ch.end ? ch.end : t;
+  const days = [];
+  for (let d = last; d >= ch.start && days.length < 60; d = L.addDays(d, -1)) days.push(d);
+  const day = state.ownerDay?.[uid] && days.includes(state.ownerDay[uid]) ? state.ownerDay[uid] : last;
+  const sel = h("select", { class: "cad", id: `own-${uid.replace(/[^a-zA-Z0-9_-]/g, "")}`, "aria-label": `Day to edit for ${p.name}`,
+    onchange: (e) => { state.ownerDay = Object.assign({}, state.ownerDay, { [uid]: e.target.value }); render(); } },
+    days.map((d) => h("option", { value: d }, d === t ? "Today" : fmtDay(d))));
+  sel.value = day;
+  return h("div", { class: "owner-edit" }, h("span", { class: "tlabel" }, "Owner: fix their ticks"), sel,
+    h("div", { class: "owner-ticks" }, L.activeGoals(ch, day).map((g) => {
+      const on = L.isDone(p, day, g.id);
+      return h("button", { class: "mini-btn" + (on ? " on" : ""), type: "button", "aria-pressed": String(on), onclick: async () => {
+        const r = L.ownerTickPatch(ch, day, g.id, !on);
+        if (r.error) return toast(r.error);
+        try { await state.backend.mergePlayer(uid, r.patch); toast(`${p.name || "Their"} ${g.text}: ${on ? "unticked" : "ticked"}.`); }
+        catch (e) { console.error(e); toast("That didn't save. Only the owner can edit other players."); }
+      } }, `${on ? "✓ " : ""}${g.text}`);
+    })));
+}
+
+// Owner only: change the dates. Moving the start back on set-up day also opens the catch-up for everyone.
+function datesField(ch) {
+  const start = h("input", { id: "editStart", type: "date", value: ch.start });
+  const end = h("input", { id: "editEnd", type: "date", value: ch.end });
+  return h("div", { class: "field" }, h("label", {}, "Dates"),
+    h("div", { class: "row2" }, h("div", {}, h("label", { class: "tlabel", for: "editStart" }, "Starts"), start), h("div", {}, h("label", { class: "tlabel", for: "editEnd" }, "Ends"), end)),
+    h("button", { class: "mini-btn", type: "button", style: "min-height:44px;margin-top:8px", onclick: async () => {
+      const r = L.datesPatch(ch, start.value, end.value);
+      if (r.error) return toast(r.error);
+      try {
+        await state.backend.mergeChallenge(ch.id, r.patch);
+        state.viewDay = null;
+        const moved = Object.assign({}, ch, { start: start.value, end: end.value });
+        toast(L.catchUpOpen(moved, now()) ? `Starts ${fmtDay(start.value, { weekday: "long" })} now. Everyone can catch up until noon tomorrow.` : "Dates saved.");
+      } catch (e2) { console.error(e2); toast("That didn't save."); }
+    } }, "Save dates"),
+    h("p", { class: "seg-note" }, "Set the start up to a week back today, and everyone can tick those days until noon tomorrow."));
 }
 
 // "Every day" or "N days a week". Values: "" = daily, "1".."6".
@@ -463,7 +505,8 @@ function openSettings() {
   const build = () => {
     const ch = current(); // re-read on every rebuild: the shared doc changes under the open sheet
     const t = today();
-    const locked = L.isLocked(ch, t);
+    const owner = !!state.ms?.owner;
+    const locked = L.isLocked(ch, t) && !owner; // the owner can edit anything, any time
     const goals = L.goalList(ch);
     const mine = me().targets || {};
     const items = goals.map((g) => {
@@ -474,7 +517,7 @@ function openSettings() {
           try { await state.backend.mergePlayer(state.user.uid, { targets: { [g.id]: v } }); toast("Target saved."); } catch (e2) { console.error(e2); toast("Target didn't save. Try again."); }
         } });
       const textField = !locked ? h("input", { id: `gtx-${g.id}`, maxlength: "60", value: g.text, "aria-label": "Goal", onchange: async (e) => {
-        const r = L.editGoalPatch(ch, g.id, e.target.value, t);
+        const r = L.editGoalPatch(ch, g.id, e.target.value, t, owner);
         if (r.error) return toast(r.error);
         try { await state.backend.mergeChallenge(ch.id, r.patch); toast("Goal updated."); } catch (e2) { console.error(e2); toast("That didn't save."); }
       } }) : null;
@@ -484,7 +527,7 @@ function openSettings() {
         locked ? h("span", { class: "tlabel" }, L.cadenceLabel(g)) :
           h("div", { class: "field", style: "margin:0" }, h("label", { class: "tlabel", for: `cad-${g.id}` }, "How often"),
             cadenceSelect(`cad-${g.id}`, g.perWeek, async (v) => {
-              const r = L.cadencePatch(ch, g.id, v, t);
+              const r = L.cadencePatch(ch, g.id, v, t, owner);
               if (r.error) return toast(r.error);
               try { await state.backend.mergeChallenge(ch.id, r.patch); toast("Saved."); } catch (e2) { console.error(e2); toast("That didn't save."); }
             }, `How often for ${g.text}`)),
@@ -502,6 +545,7 @@ function openSettings() {
     return [
       h("h2", { id: "sheetTitle" }, ch.name),
       h("p", { class: "sub" }, `${fmtDay(ch.start, { month: "short", day: "numeric" })} – ${fmtDay(ch.end, { month: "short", day: "numeric", year: "numeric" })}`),
+      owner && L.isLocked(ch, t) ? h("div", { class: "lockline" }, "You're the owner, so you can change anything here. Edits apply to everyone, and past days re-score on the live screens. Days already posted to the board keep their post.") : null,
       locked ? (() => { const l = h("div", { class: "lockline" }); l.innerHTML = SVG.lock; l.append("Goals are locked in. You can add a goal from today, or close one: it stops counting today and its history stays."); return l; })() : null,
       h("div", { style: "display:grid;gap:10px;margin-bottom:16px" }, items),
       h("div", { class: "field" }, h("label", { for: "addGoal" }, "Add a goal"), addInput, h("div", { style: "display:flex;gap:8px" }, addSel,
@@ -510,6 +554,7 @@ function openSettings() {
           if (r.error) return toast(r.error);
           try { await state.backend.mergeChallenge(ch.id, r.patch); toast(locked ? "Goal added. It counts from today." : "Goal added."); } catch (e2) { console.error(e2); toast("That didn't save."); }
         } }, "Add"))),
+      owner ? datesField(ch) : null,
       state.ms?.owner ? h("button", { class: "mini-btn", type: "button", style: "margin-bottom:12px", onclick: openMembers }, "Who's in the group") : null,
       h("div", { class: "sheet-actions" }, closeBtn(), t > ch.end ? h("button", { class: "btn blaze", type: "button", onclick: openCreate }, "New challenge") : null),
     ];

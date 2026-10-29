@@ -306,8 +306,8 @@
   }
 
   // Patch that edits goal text. Only before the challenge starts.
-  function editGoalPatch(ch, id, text, today) {
-    if (isLocked(ch, today)) return { error: "Goals are locked once the challenge starts. Close it and add a new one." };
+  function editGoalPatch(ch, id, text, today, owner) {
+    if (!owner && isLocked(ch, today)) return { error: "Goals are locked once the challenge starts. Close it and add a new one." };
     var t = cleanText(text);
     if (!t) return { error: "Type the goal first." };
     var goals = {};
@@ -316,8 +316,8 @@
   }
 
   // Patch that changes a goal between daily and N-a-week. Only before the challenge starts.
-  function cadencePatch(ch, id, perWeek, today) {
-    if (isLocked(ch, today)) return { error: "Goals are locked once the challenge starts. Close it and add a new one." };
+  function cadencePatch(ch, id, perWeek, today, owner) {
+    if (!owner && isLocked(ch, today)) return { error: "Goals are locked once the challenge starts. Close it and add a new one." };
     if (!(ch.goals && ch.goals[id])) return { error: "That goal is gone." };
     var goals = {};
     goals[id] = { perWeek: cleanPerWeek(perWeek) };
@@ -326,6 +326,43 @@
 
   function cadenceLabel(g) {
     return isWeekly(g) ? g.perWeek + (g.perWeek === 1 ? " day" : " days") + " a week" : "Every day";
+  }
+
+  // Moving the start back is allowed only while the catch-up window can still run: set-up day, or the morning after.
+  function canMoveStart(ch, nowMs) {
+    if (!ch || !ch.createdAt) return false;
+    var created = pacificDate(ch.createdAt), today = pacificDate(nowMs);
+    return today === created || (today === addDays(created, 1) && pacificHour(nowMs) < FINAL_HOUR);
+  }
+
+  // Patch that moves the start back (up to a week before set-up day). Goals that began on the old start move with it.
+  function moveStartPatch(ch, newStart, nowMs) {
+    if (!canMoveStart(ch, nowMs)) return { error: "The start can only move back on the day the challenge was set up." };
+    if (!isDate(newStart)) return { error: "Pick a date." };
+    if (newStart >= ch.start) return { error: "Pick a day before the current start." };
+    if (newStart < addDays(pacificDate(ch.createdAt), -MAX_BACKDATE)) return { error: "No more than a week back." };
+    var goals = {};
+    goalList(ch).forEach(function (g) { if (g.addedOn === ch.start) goals[g.id] = { addedOn: newStart }; });
+    return { patch: { start: newStart, goals: goals } };
+  }
+
+  // Owner only: change start and/or end any time. Goals that began on the old start move with it.
+  function datesPatch(ch, start, end) {
+    if (!isDate(start) || !isDate(end)) return { error: "Pick both dates." };
+    if (end < start) return { error: "End on or after the start date." };
+    if (daysBetween(start, end) > 365) return { error: "Keep it to a year or less." };
+    var goals = {};
+    if (start !== ch.start) goalList(ch).forEach(function (g) { if (g.addedOn === ch.start || g.addedOn < start) goals[g.id] = { addedOn: start }; });
+    return { patch: { start: start, end: end, goals: goals } };
+  }
+
+  // Owner correction of anyone's tick: any day inside the challenge, no edit window.
+  function ownerTickPatch(ch, date, id, done) {
+    if (!inChallenge(ch, date)) return { error: "That day isn't in the challenge." };
+    if (!activeGoals(ch, date).some(function (g) { return g.id === id; })) return { error: "That goal doesn't count that day." };
+    var day = {}; day[id] = !!done;
+    var days = {}; days[date] = day;
+    return { patch: { days: days } };
   }
 
   // Patch for one tick. Refuses outside the edit window or for goals not active that day.
@@ -362,7 +399,7 @@
     pacificDate: pacificDate, pacificHour: pacificHour, addDays: addDays, daysBetween: daysBetween, isDate: isDate,
     inChallenge: inChallenge, goalList: goalList, activeGoals: activeGoals, isLocked: isLocked, isDone: isDone,
     dayScore: dayScore, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
-    catchUpOpen: catchUpOpen, catchUpClosesMs: catchUpClosesMs, editableDates: editableDates, MAX_BACKDATE: MAX_BACKDATE,
+    catchUpOpen: catchUpOpen, ownerTickPatch: ownerTickPatch, datesPatch: datesPatch, canMoveStart: canMoveStart, moveStartPatch: moveStartPatch, catchUpClosesMs: catchUpClosesMs, editableDates: editableDates, MAX_BACKDATE: MAX_BACKDATE,
     resultsDue: resultsDue, resultId: resultId, buildResult: buildResult, joinedBy: joinedBy,
     currentChallenge: currentChallenge, cleanText: cleanText, validateChallenge: validateChallenge,
     addGoalPatch: addGoalPatch, cadencePatch: cadencePatch, cadenceLabel: cadenceLabel, isWeekly: isWeekly,
