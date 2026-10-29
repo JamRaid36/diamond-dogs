@@ -96,6 +96,7 @@ function renderInner() {
   else chip.textContent = `Day ${L.dayNumber(ch, t)} / ${L.challengeLength(ch)}`;
   app.replaceChildren(...[ // sections that have nothing to show return null; never hand null to the DOM
     demoBanner(),
+    h("img", { class: "brand-hero", src: "logo-hero.webp", alt: "Alpha Pack", width: "720", height: "582" }),
     t < ch.start ? renderUpcoming(ch) : t > ch.end ? renderFinished(ch) : renderYou(ch),
     renderPack(ch),
     renderChat(),
@@ -179,9 +180,9 @@ function renderNoChallenge() {
 function ring(score) {
   const C = 2 * Math.PI * 28;
   const off = C * (1 - (score.of ? score.hit / score.of : 0));
-  const el = h("div", { class: "ring", role: "img", "aria-label": `${score.hit} of ${score.of} done` });
+  const el = h("div", { class: "ring", role: "img", "aria-label": score.off ? "Day off" : `${score.hit} of ${score.of} done` });
   el.innerHTML = `<svg viewBox="0 0 68 68" aria-hidden="true"><circle class="track" cx="34" cy="34" r="28" fill="none" stroke-width="7"/><circle class="fill" cx="34" cy="34" r="28" fill="none" stroke-width="7" stroke-linecap="round" stroke-dasharray="${C.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/></svg>`;
-  el.append(h("b", {}, `${score.hit}/${score.of}`));
+  el.append(h("b", {}, score.off ? "Off" : `${score.hit}/${score.of}`));
   return el;
 }
 
@@ -205,13 +206,14 @@ function renderYou(ch) {
   const catchUp = L.catchUpOpen(ch, now());
   const dayLabel = (d) => d === t ? "Today" : d === L.addDays(t, -1) ? "Yesterday" : fmtDay(d, { weekday: "short" });
   const perfectStreak = L.perfectStreak(p, ch, t);
-  const sub = !goals.length ? `${wk.met} of ${wk.of} weekly goals met` :
+  const off = L.isSkip(ch, date);
+  const sub = off ? "Day off for everyone" : !goals.length ? `${wk.met} of ${wk.of} weekly goals met` :
     score.perfect ? "Perfect day. Every daily goal done." :
     score.hit === 0 ? `${goals.length} daily goal${goals.length === 1 ? "" : "s"} to tick` :
     `${score.of - score.hit} to go today`;
   const card = h("section", { class: "you", id: "you", "aria-labelledby": "youTitle" },
     h("div", { class: "perfect", "aria-hidden": "true" }),
-    h("div", { class: "you-head" }, ring(goals.length ? score : { hit: wk.met, of: wk.of }),
+    h("div", { class: "you-head" }, ring(off ? { hit: 0, of: 0, off: true } : goals.length ? score : { hit: wk.met, of: wk.of }),
       h("div", { class: "you-title" }, h("p", { class: "eyebrow" }, ch.name), h("h1", { id: "youTitle" }, dayLabel(date)),
         h("p", {}, `${fmtDay(date)} · ${sub}`))),
     catchUp ? catchUpBanner(ch, p, openDays, t) : null,
@@ -222,7 +224,8 @@ function renderYou(ch) {
     goals.length ? h("ul", { class: "goals" }, goals.map((g) => goalRow(ch, p, g, date, t))) : null,
     weekly.length ? h("div", { class: "wk-head" }, h("span", {}, "This week"), h("small", {}, `${wk.met} of ${wk.of} met · resets Monday`)) : null,
     weekly.length ? h("ul", { class: "goals" }, weekly.map((g) => goalRow(ch, p, g, date, t))) : null,
-    !goals.length && !weekly.length ? h("p", { class: "empty" }, "No goals count today. Add one from the menu.") : null,
+    off ? h("p", { class: "empty" }, h("b", {}, "Day off. "), "Nothing counts today, and every streak picks up where it left off.") :
+      !goals.length && !weekly.length ? h("p", { class: "empty" }, "No goals count today. Add one from the menu.") : null,
     h("div", { class: "you-foot" },
       h("span", { class: "foot-note" + (perfectStreak >= 3 ? " hot" : "") }, perfectStreak ? `${perfectStreak} perfect day${perfectStreak === 1 ? "" : "s"} in a row` : goals.length ? `Tick all ${goals.length} daily goals for a perfect day` : "Weekly goals only"),
       h("button", { class: "link-btn", type: "button", onclick: openSettings }, "Edit goals")));
@@ -241,7 +244,7 @@ function catchUpBanner(ch, p, openDays, t) {
     h("div", { class: "catchup-days", role: "group", "aria-label": "Which day" }, days.map((d) => {
       const s = L.dayScore(p, ch, d);
       return h("button", { class: "mini-btn", type: "button", "aria-pressed": String(shown === d), onclick: () => { state.viewDay = d; render(); } },
-        `${d === t ? "Today" : fmtDay(d, { weekday: "short" })} · ${s.hit}/${s.of}`);
+        `${d === t ? "Today" : fmtDay(d, { weekday: "short" })} · ${L.isSkip(ch, d) ? "off" : `${s.hit}/${s.of}`}`);
     })));
 }
 
@@ -323,12 +326,13 @@ function renderPack(ch) {
     const open = state.expanded.has(uid);
     const isMe = uid === state.user.uid;
     const ps = L.perfectStreak(p, ch, date);
+    const off = L.isSkip(ch, date);
     const detailId = "tagd-" + uid.replace(/[^a-zA-Z0-9_-]/g, "");
     return h("article", { class: "tag" + (isMe ? " me" : "") },
       h("button", { class: "tag-btn", type: "button", "aria-expanded": String(open), "aria-controls": detailId, onclick: () => { open ? state.expanded.delete(uid) : state.expanded.add(uid); render(); } },
         h("div", { class: "tag-row" },
-          h("div", { class: "tag-name" }, h("b", {}, p.name || "Player"), h("span", {}, isMe ? "You" : ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : s.hit ? `${s.of - s.hit} to go today` : "Nothing ticked yet today")),
-          h("div", { class: "tag-score" }, `${s.hit}/${s.of}`, h("small", {}, "today"))),
+          h("div", { class: "tag-name" }, h("b", {}, p.name || "Player"), h("span", {}, isMe ? "You" : off ? "Day off" : ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : s.hit ? `${s.of - s.hit} to go today` : "Nothing ticked yet today")),
+          h("div", { class: "tag-score" }, off ? "Off" : `${s.hit}/${s.of}`, h("small", {}, "today"))),
         h("div", { class: "pips", "aria-hidden": "true" }, goals.map((g) => h("span", { class: "pip" + (L.isDone(p, date, g.id) ? " on" : "") })),
           weekly.map((g) => { const pr = L.weekProgress(p, ch, g, date); return h("span", { class: "wbar" + (pr.met ? " met" : "") }, h("i", { style: `width:${pr.need ? Math.min(100, Math.round(pr.done / pr.need * 100)) : 0}%` })); }))),
       open ? h("div", { class: "tag-detail", id: detailId }, goals.map((g) => {
@@ -363,6 +367,7 @@ function renderGrid(ch) {
     grid.append(h("span", { class: "who", role: "rowheader" }, p.name || "Player"));
     for (const d of dates) {
       const s = L.dayScore(p, ch, d);
+      if (L.isSkip(ch, d)) { grid.append(h("span", { class: "cell off" + (d === t ? " today" : ""), role: "cell", title: `${fmtDay(d)}: day off`, "aria-label": `${p.name}, ${fmtDay(d)}: day off` })); continue; }
       const lvl = !s.of || !L.joinedBy(p, d) ? 0 : s.pct === 100 ? 4 : s.pct >= 67 ? 3 : s.pct >= 34 ? 2 : s.pct > 0 ? 1 : 0;
       grid.append(h("span", { class: `cell l${lvl}` + (d === t ? " today" : ""), role: "cell", title: `${p.name}, ${fmtDay(d)}: ${s.hit} of ${s.of}`, "aria-label": `${p.name}, ${fmtDay(d)}: ${s.hit} of ${s.of}` }));
     }
@@ -386,9 +391,9 @@ function boardPost(ch, r, live) {
 // Days still open (today, and yesterday until noon) show live from everyone's ticks; closed days are the posted docs.
 function renderBoard(ch) {
   const t = today();
-  const all = Object.values(state.results || {}).filter((r) => r.challengeId === ch.id).sort((a, b) => (a.date < b.date ? 1 : -1));
+  const all = Object.values(state.results || {}).filter((r) => r.challengeId === ch.id && !L.isSkip(ch, r.date)).sort((a, b) => (a.date < b.date ? 1 : -1));
   const posted = new Set(all.map((r) => r.date));
-  const live = L.editableDates(ch, now()).filter((d) => !posted.has(d))
+  const live = L.editableDates(ch, now()).filter((d) => !posted.has(d) && !L.isSkip(ch, d))
     .map((d) => L.buildResult(state.players, ch, d, now()));
   const posts = all.slice(0, state.boardAll ? 60 : 3);
   const head = h("div", { class: "sec-head" }, h("h2", { id: "boardH" }, "Daily Board"), h("span", { class: "note" }, "Live all day · locks at noon next day"));
@@ -494,6 +499,7 @@ function ownerControls(ch) {
         try { await state.backend.mergeChallenge(ch.id, r.patch); toast("Renamed."); } catch (e) { console.error(e); toast("That didn't save."); }
       } }, "Save"))),
     datesField(ch),
+    daysOffField(ch),
     end.error ? null : h("div", { class: "field" },
       h("button", { class: "mini-btn danger", type: "button", style: "min-height:44px", onclick: async () => {
         if (!sure) { state.confirmEnd = ch.id; openSettings(); return; }
@@ -504,6 +510,25 @@ function ownerControls(ch) {
         } catch (e) { console.error(e); toast("That didn't save."); }
       } }, sure ? (end.remove ? "Tap again to remove it" : "Tap again to end it tonight") : (end.remove ? "Cancel this challenge" : "End it early")),
       h("p", { class: "seg-note" }, end.remove ? "It hasn't started, so nothing is lost." : "Today is the last day. Every tick so far stays, and the final standings show tomorrow.")));
+}
+
+// Owner only: days off. Nothing counts on them for anyone; streaks jump them; weekly goals need one day fewer.
+function daysOffField(ch) {
+  const t = today();
+  const pick = h("input", { id: "offDay", type: "date", value: L.inChallenge(ch, t) ? t : ch.start, min: ch.start, max: ch.end, "aria-label": "Day to take off" });
+  const save = async (date, off) => {
+    const r = L.skipPatch(ch, date, off);
+    if (r.error) return toast(r.error);
+    try { await state.backend.mergeChallenge(ch.id, r.patch); toast(off ? `${fmtDay(date)} is a day off for everyone.` : `${fmtDay(date)} counts again.`); }
+    catch (e) { console.error(e); toast("That didn't save."); }
+  };
+  const offs = L.skipDates(ch);
+  return h("div", { class: "field" }, h("label", { for: "offDay" }, "Days off"),
+    h("div", { style: "display:flex;gap:8px" }, pick,
+      h("button", { class: "mini-btn", type: "button", style: "min-height:50px;flex:none", onclick: () => save(pick.value, true) }, "Take it off")),
+    offs.length ? h("ul", { class: "off-list" }, offs.map((d) => h("li", {}, h("span", {}, fmtDay(d, { weekday: "long", month: "short", day: "numeric" })),
+      h("button", { class: "mini-btn", type: "button", style: "min-height:44px", onclick: () => save(d, false) }, "Count it again")))) : null,
+    h("p", { class: "seg-note" }, "Holiday, sick week, travel. Nothing counts that day for anyone, streaks skip it, and weekly goals need one day fewer that week. Ticks stay, so switching it back brings them back."));
 }
 
 // "Every day" or "N days a week". Values: "" = daily, "1".."6".

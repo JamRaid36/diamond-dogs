@@ -3,6 +3,7 @@
  * Data shapes (Firestore):
  *   challenges/<id>  {name, start, end, createdBy, createdAt,
  *                     goals: {<goalId>: {text, addedOn, closedOn|null, order, perWeek|null}}}
+ *                     skips: {<YYYY-MM-DD>: bool}   days off: nothing counts, streaks jump them, weekly targets drop a day
  *                     perWeek null = a daily goal (every day counts); 1-7 = "N days a week", weeks run Mon-Sun.
  *   players/<uid>    {name, joinedAt, targets: {<goalId>: text}, days: {<YYYY-MM-DD>: {<goalId>: bool}}}
  *   results/<date>   {date, challengeId, rows: [{uid, name, hit, of, pct, perfect}], createdAt}   (create-only)
@@ -59,9 +60,29 @@
       .sort(function (a, b) { return (a.order || 0) - (b.order || 0) || (a.addedOn < b.addedOn ? -1 : 1); });
   }
 
-  // Goals that count on `date`: added on or before it, not closed on or before it, and the date inside the challenge.
+  // A day off: the owner switched it off for everyone. Ticks on it are kept but nothing counts.
+  function isSkip(ch, date) {
+    return !!(ch && ch.skips && ch.skips[date] === true);
+  }
+
+  function skipDates(ch) {
+    return Object.keys((ch && ch.skips) || {}).filter(function (d) { return ch.skips[d] === true && inChallenge(ch, d); }).sort();
+  }
+
+  // Owner only: switch a day off or back on.
+  function skipPatch(ch, date, off) {
+    if (!isDate(date)) return { error: "Pick a day." };
+    if (!inChallenge(ch, date)) return { error: "Pick a day inside the challenge." };
+    if (off && isSkip(ch, date)) return { error: "That day is already off." };
+    var skips = {};
+    skips[date] = !!off;
+    return { patch: { skips: skips } };
+  }
+
+  // Goals that count on `date`: added on or before it, not closed on or before it, the date inside the challenge,
+  // and not a day off.
   function activeGoals(ch, date) {
-    if (!inChallenge(ch, date)) return [];
+    if (!inChallenge(ch, date) || isSkip(ch, date)) return [];
     return goalList(ch).filter(function (g) {
       return g.addedOn <= date && (!g.closedOn || date < g.closedOn);
     });
@@ -81,7 +102,8 @@
 
   // Daily goals only: weekly goals are scored by the week, so a rest day can still be a perfect day.
   function dailyGoals(ch, date) { return activeGoals(ch, date).filter(function (g) { return !isWeekly(g); }); }
-  function weeklyGoals(ch, date) { return activeGoals(ch, date).filter(isWeekly); }
+  // Weekly goals that need at least one day this week (days off can waive a goal for the week).
+  function weeklyGoals(ch, date) { return activeGoals(ch, date).filter(function (g) { return isWeekly(g) && weekProgress(null, ch, g, date).need > 0; }); }
 
   // Monday of the week holding `date` (weeks run Mon-Sun).
   function weekStart(date) {
@@ -93,13 +115,15 @@
   // Progress on one weekly goal in the week holding `date`, counting ticks up to `date`.
   function weekProgress(player, ch, goal, date) {
     var start = weekStart(date);
-    var done = 0, counted = 0;
+    var done = 0, counted = 0, off = 0;
     for (var d = start; d <= addDays(start, 6); d = addDays(d, 1)) {
+      if (isSkip(ch, d) && inChallenge(ch, d)) { off++; continue; }
       if (!activeGoals(ch, d).some(function (g) { return g.id === goal.id; })) continue;
       counted++;
       if (d <= date && isDone(player, d, goal.id)) done++;
     }
-    var need = Math.min(goal.perWeek, counted); // a short first/last week can't need more days than it has
+    var need = Math.min(goal.perWeek - off, counted); // each day off takes one off; a short week can't need more days than it has
+    if (need < 0) need = 0;
     return { done: done, need: need, met: need > 0 && done >= need, weekStart: start };
   }
 
@@ -120,6 +144,7 @@
     if (cur.met) n++;
     for (var d = addDays(wk, -1); inChallenge(ch, d); d = addDays(weekStart(d), -1)) {
       var pr = weekProgress(player, ch, goal, addDays(weekStart(d), 6));
+      if (pr.need === 0 && skipDates(ch).some(function (x) { return weekStart(x) === pr.weekStart; })) continue; // a week off: jump it
       if (!pr.met) break;
       n++;
     }
@@ -138,10 +163,12 @@
   function goalStreak(player, ch, goalId, today) {
     var day = isDone(player, today, goalId) ? today : addDays(today, -1);
     var n = 0;
+    while (isSkip(ch, day)) day = addDays(day, -1);
     while (inChallenge(ch, day) && activeGoals(ch, day).some(function (g) { return g.id === goalId; })) {
       if (!isDone(player, day, goalId)) break;
       n++;
       day = addDays(day, -1);
+      while (isSkip(ch, day)) day = addDays(day, -1);
     }
     return n;
   }
@@ -150,9 +177,11 @@
   function perfectStreak(player, ch, today) {
     var day = dayScore(player, ch, today).perfect ? today : addDays(today, -1);
     var n = 0;
+    while (isSkip(ch, day)) day = addDays(day, -1);
     while (inChallenge(ch, day) && dayScore(player, ch, day).perfect) {
       n++;
       day = addDays(day, -1);
+      while (isSkip(ch, day)) day = addDays(day, -1);
     }
     return n;
   }
@@ -210,7 +239,7 @@
     (existingDates || []).forEach(function (d) { have[d] = true; });
     var out = [];
     for (var d = ch.start; d <= ch.end && isFinal(d, nowMs, ch); d = addDays(d, 1)) {
-      if (!have[d]) out.push(d);
+      if (!have[d] && !isSkip(ch, d)) out.push(d);
     }
     return out.slice(-(limit || 7));
   }
@@ -474,7 +503,7 @@
     pacificDate: pacificDate, pacificHour: pacificHour, addDays: addDays, daysBetween: daysBetween, isDate: isDate,
     inChallenge: inChallenge, goalList: goalList, activeGoals: activeGoals, isLocked: isLocked, isDone: isDone,
     dayScore: dayScore, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
-    renamePatch: renamePatch, endPlan: endPlan, handoffPlan: handoffPlan,
+    isSkip: isSkip, skipDates: skipDates, skipPatch: skipPatch, renamePatch: renamePatch, endPlan: endPlan, handoffPlan: handoffPlan,
     catchUpOpen: catchUpOpen, pruneEmpty: pruneEmpty, orphanGoals: orphanGoals, recoverGoalsPatch: recoverGoalsPatch, ownerTickPatch: ownerTickPatch, datesPatch: datesPatch, canMoveStart: canMoveStart, moveStartPatch: moveStartPatch, catchUpClosesMs: catchUpClosesMs, editableDates: editableDates, MAX_BACKDATE: MAX_BACKDATE,
     resultsDue: resultsDue, resultId: resultId, buildResult: buildResult, joinedBy: joinedBy,
     currentChallenge: currentChallenge, cleanText: cleanText, validateChallenge: validateChallenge,

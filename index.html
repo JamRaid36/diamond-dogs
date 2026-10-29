@@ -82,9 +82,9 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .top { position: sticky; top: 0; z-index: 20; background: color-mix(in oklch, var(--bg) 86%, transparent);
   backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px);
   padding-top: env(safe-area-inset-top, 0px); border-bottom: 1px solid color-mix(in oklch, var(--line) 70%, transparent); }
-.top .wrap { display: flex; align-items: center; gap: 12px; min-height: 56px; }
+.top .wrap { display: flex; align-items: center; gap: 12px; min-height: 68px; }
 .mark-wrap { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
-.mark-wrap img { width: 44px; height: 36px; object-fit: contain; flex: none; filter: drop-shadow(0 1px 2px oklch(0 0 0 / 0.25)); }
+.mark-wrap img { width: 64px; height: 52px; object-fit: contain; flex: none; filter: drop-shadow(0 1px 2px oklch(0 0 0 / 0.25)); }
 .mark { font: 800 22px/1 var(--stencil); letter-spacing: 0.06em; text-transform: uppercase; margin: 0; flex: 1; min-width: 0; }
 .mark span { color: var(--blaze); }
 .chip { display: inline-flex; align-items: center; gap: 6px; font: 500 11px/1 var(--mono); letter-spacing: 0.04em;
@@ -194,6 +194,10 @@ main { padding-block: 18px 48px; display: grid; gap: 28px; }
 .cell.l2 { background: color-mix(in srgb, var(--hit) 50%, var(--bg-deep)); }
 .cell.l3 { background: color-mix(in srgb, var(--hit) 75%, var(--bg-deep)); }
 .cell.l4 { background: var(--hit); }
+.cell.off { background: repeating-linear-gradient(135deg, var(--bg-deep) 0 4px, transparent 4px 8px); border: 1px dashed var(--line); }
+.brand-hero { display: block; width: min(68vw, 280px); height: auto; margin: 4px auto -6px; filter: drop-shadow(0 14px 30px color-mix(in srgb, var(--ice) 30%, transparent)); }
+.off-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.off-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; }
 .cell.today { outline: 2px solid var(--blaze); outline-offset: 1px; }
 .legend { display: flex; align-items: center; gap: 6px; margin-top: 12px; font: 400 12px/1 var(--body); color: var(--muted); }
 .legend .cell { width: 14px; height: 14px; border-radius: 4px; }
@@ -326,7 +330,7 @@ body.gated .top .mark { visibility: hidden; }
 <body>
 <header class="top">
   <div class="wrap">
-    <div class="mark-wrap"><img src="logo-96.png" alt="" width="44" height="36"><p class="mark">Alpha <span>Pack</span></p></div>
+    <div class="mark-wrap"><img src="logo-200.png" alt="" width="64" height="52"><p class="mark">Alpha <span>Pack</span></p></div>
     <span class="chip" id="dayChip" hidden></span>
     <button class="icon-btn" id="menuBtn" type="button" aria-label="Challenge settings" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
