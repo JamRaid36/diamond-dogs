@@ -129,7 +129,17 @@ function renderInner() {
   ].filter(Boolean));
 }
 
+const DEV_SCENES = [["active", "Mid-challenge (owner)"], ["goalcheck", "Before the start (owner)"], ["goalcheckm", "Before the start (player)"],
+  ["pardon", "Pardon vote"], ["treasurer", "Treasurer (owner view)"], ["treasurerm", "Treasurer (his view)"], ["over", "Finished, settle the pot"],
+  ["member", "A player, not the owner"], ["empty", "Brand-new player"], ["signedout", "Signed out"]];
 function demoBanner() {
+  if (window.DD_DEV) {
+    const cur = new URLSearchParams(location.search).get("demo") || "active";
+    return h("div", { class: "dev-bar", role: "note" }, h("b", {}, "DEV PREVIEW"), " · sample players, nothing is saved. Check it, then tell Leo \u201cship it\u201d.",
+      h("label", { class: "tlabel", for: "devScene", style: "display:block;margin-top:8px" }, "Try a situation"),
+      (() => { const sel = h("select", { id: "devScene", class: "cad", onchange: (e) => { location.search = "?demo=" + e.target.value; } },
+        DEV_SCENES.map(([v, label]) => h("option", { value: v }, label))); sel.value = cur; return sel; })());
+  }
   if (state.backend?.mode !== "demo" || new URLSearchParams(location.search).has("plain")) return null;
   return h("p", { class: "demo-banner" }, "Demo with sample people. Nothing you tap here is saved.");
 }
@@ -1434,7 +1444,8 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden && st
 
 async function boot() {
   const params = new URLSearchParams(location.search);
-  const demo = params.get("demo");
+  // The dev preview site (config sets DD_DEV, no Firebase) always runs on sample data: real data can't be touched.
+  const demo = params.get("demo") || (window.DD_DEV ? "active" : null);
   try {
     if (demo) {
       const { createDemoBackend } = await import("./backend-demo.js");
