@@ -473,7 +473,7 @@ function renderSignoff(ch) {
     } }, so.byOwner ? "Undo owner approval" : "Approve as owner") : null;
     return h("li", { class: so.approved ? "pardoned" : null },
       h("div", { class: "pd-what" }, h("b", {}, isMe ? "Your goals" : `${p.name || "Player"}'s goals`),
-        goals.length ? h("ul", { class: "so-goals" }, goals.map((g) => h("li", {}, g.text, L.isWeekly(g) ? h("small", {}, ` · ${L.cadenceLabel(g)}`) : null)))
+        goals.length ? h("ul", { class: "so-goals" }, goals.map((g) => h("li", {}, g.text, h("small", {}, ` · ${L.cadenceLabel(g)}`))))
           : h("small", {}, isMe ? "None yet. Add yours under Edit goals." : "None yet.")),
       h("div", { class: "pd-act so-act" }, status, votes, ownerBtn, isMe ? h("button", { class: "mini-btn", type: "button", onclick: openSettings }, so.count ? "Edit goals" : "Set your goals") : null));
   });
