@@ -293,7 +293,7 @@ function goalRow(ch, p, g, date, t) {
     onclick: () => tick(ch, date, g.id, !done, btn) });
   const box = h("span", { class: "box" });
   box.innerHTML = SVG.check;
-  const small = [target ? `Your target: ${target}` : null, weekly ? L.cadenceLabel(g) : null].filter(Boolean).join(" · ");
+  const small = [target ? `Your target: ${target}` : null, L.cadenceLabel(g)].filter(Boolean).join(" · "); // every goal says how often, daily ones too
   btn.append(box, h("span", { class: "goal-text" }, h("strong", {}, g.text), small ? h("small", {}, small) : null),
     weekly ? h("span", { class: "wk" + (prog.met ? " met" : ""), "aria-label": `${prog.done} of ${prog.need} this week` }, `${prog.done}/${prog.need}`) : streakEl(streak, "Days in a row"));
   return h("li", {}, btn);
