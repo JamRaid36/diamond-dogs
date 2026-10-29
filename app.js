@@ -111,7 +111,8 @@ function renderInner() {
     demoBanner(),
     state.chId ? h("div", { class: "viewing", role: "note" }, h("span", {}, "Viewing ", h("b", {}, ch.name)),
       h("button", { class: "link-btn", type: "button", onclick: () => pick(null) }, "Back to current")) : null,
-    h("img", { class: "brand-hero", src: "logo-hero.webp", alt: "Alpha Pack", width: "720", height: "582" }),
+    potStrip(ch),
+    h("img", { class: "brand-hero small", src: "logo-hero.webp", alt: "Alpha Pack", width: "720", height: "582" }),
     welcomeCard(),
     installCard(),
     quickLinks(),
@@ -401,6 +402,17 @@ function openChallenges() {
 }
 
 const money = (n) => "$" + (Number.isInteger(n) ? String(n) : n.toFixed(2));
+
+// Eyes on the prize (Jason 2026-10-29): the pot first thing on screen, one line, tap to jump to the full pot.
+function potStrip(ch) {
+  const st = L.potStatus(state.players, ch, now());
+  if (!st) return null;
+  const mine = st.rows.find((r) => r.uid === state.user.uid);
+  const you = !mine ? null : mine.out ? (mine.comeback ? "you: on a comeback" : "you: out") : `you: ${mine.strikes} of ${st.limit} strike${st.limit === 1 ? "" : "s"}`;
+  const each = st.settled ? "settled" : st.refund ? "everyone's out" : `${money(st.share)} each${st.final ? "" : " if it ended now"}`;
+  return h("button", { class: "pot-strip", type: "button", onclick: () => document.getElementById("potH")?.scrollIntoView({ behavior: "smooth", block: "start" }) },
+    h("span", { class: "ps-amt" }, money(st.pot)), h("span", { class: "ps-txt" }, `pot · ${each}`, you ? h("small", {}, you) : null), h("span", { class: "ps-go", "aria-hidden": "true" }, "›"));
+}
 
 // The pot: play money. Everyone on the board is in for the buy-in; strikes knock people out; survivors split it.
 // Out at the limit with a comeback on: finish without another strike and get the comeback back (never a share).
@@ -1170,7 +1182,7 @@ function openSettings(id) {
       owner ? h("details", { class: "owner-wrap", open: state._ownerOpen !== false || null, ontoggle: (e) => { state._ownerOpen = e.target.open; } },
         h("summary", {}, h("span", {}, "Owner settings"), h("small", {}, "Pot, dates, days off, minimum goals, house rules, people")), ownerControls(ch)) : null,
       owner ? recoverField(ch) : null,
-      h("div", { class: "sheet-actions" }, closeBtn()),
+      h("div", { class: "sheet-actions" }, closeBtn(), h("button", { class: "btn ghost", type: "button", onclick: () => location.reload() }, "Refresh the app")),
     ];
   };
   openSheet(build);
@@ -1479,4 +1491,34 @@ async function boot() {
   });
 }
 state.user = undefined;
+// ---------- updates: nobody stays stuck on an old copy ----------
+// At boot, fingerprint the app code as served; every 5 minutes and whenever the app comes back to the screen, fetch it
+// again past every cache (no-store + a fresh query, which also skips GitHub's 10-minute CDN copy). Different = a new
+// release: show the update bar, and reload on our own when it's safe (the app was just reopened, nothing half-typed).
+const VERSION_FILES = ["app.js", "logic.js", "index.html"];
+async function codePrint() {
+  try {
+    const parts = await Promise.all(VERSION_FILES.map((f) => fetch(`${f}?v=${Date.now()}`, { cache: "no-store" }).then((r) => (r.ok ? r.text() : ""))));
+    let h1 = 5381; for (const c of parts.join("\u0000")) h1 = ((h1 * 33) ^ c.charCodeAt(0)) >>> 0;
+    return h1.toString(36);
+  } catch { return null; } // offline: no news is no news
+}
+let bootPrint = null;
+async function checkForUpdate(reopened, force) {
+  if (!force && new URLSearchParams(location.search).has("demo") && !window.DD_DEV) return; // tests: no network chatter
+  const p = await codePrint();
+  if (!p) return;
+  if (!bootPrint) { bootPrint = p; return; }
+  if (p === bootPrint) return;
+  const busy = sheet.open || (document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
+  if (reopened && !busy) { location.reload(); return; }
+  if (document.getElementById("updateBar")) return;
+  const bar = h("button", { id: "updateBar", class: "update-bar", type: "button", onclick: () => location.reload() }, "New version ready · Tap to update");
+  document.body.append(bar);
+}
+window.__checkForUpdate = checkForUpdate; // the UI tests drive it directly
+checkForUpdate(false);
+setInterval(() => checkForUpdate(false), 5 * 60 * 1000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkForUpdate(true); });
+
 boot();

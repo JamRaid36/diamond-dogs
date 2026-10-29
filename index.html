@@ -541,6 +541,15 @@ h1, h2, h3, .sheet h2, .callout h2 { text-wrap: balance; }
 .dev-sms small { display: block; opacity: 0.75; margin-bottom: 4px; }
 .dev-sms p { margin: 0; font-size: 14px; }
 .dev-bar b { color: oklch(0.85 0.15 330); letter-spacing: 0.08em; }
+.pot-strip { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 14px; border-radius: 16px; border: 2px solid transparent; cursor: pointer; text-align: left; color: var(--ink);
+  background: linear-gradient(180deg, var(--surface-hi), var(--surface)) padding-box, var(--gold) border-box; box-shadow: 0 0 30px -12px color-mix(in oklch, var(--blaze) 70%, transparent); }
+.ps-amt { font: 900 30px/1 var(--display); background: var(--gold); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.ps-txt { flex: 1; min-width: 0; font: 600 14px/1.25 var(--body); }
+.ps-txt small { display: block; font-weight: 400; color: var(--muted); }
+.ps-go { font-size: 24px; color: var(--blaze); }
+.brand-hero.small { width: min(38vw, 150px); margin: -6px auto -10px; }
+.update-bar { position: fixed; left: 50%; top: calc(76px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 70; min-height: 44px; padding: 0 18px; border: 0; border-radius: 999px;
+  background: var(--gold); color: oklch(0.2 0.04 60); font: 700 14px/1 var(--body); box-shadow: 0 10px 30px oklch(0 0 0 / 0.5); white-space: nowrap; }
 .pay-btn { display: flex; width: 100%; margin-top: 10px; text-decoration: none; }
 .pay-line b { color: var(--ink); }
 .override { color: var(--warn); }
