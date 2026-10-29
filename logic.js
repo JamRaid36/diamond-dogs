@@ -5,7 +5,7 @@
  *                     goals: {<goalId>: {text, addedOn, closedOn|null, order, perWeek|null}}   group goals: everyone's
  *                     playerGoals: {<uid>: {<goalId>: {same shape}}}   each player's own goals (the default)
  *                     minGoals: 1-8 (default 3)   goalsOk: {<uid>: <goal-set key>}   the owner's sign-off on a list
- *                     pot: {buyIn, strikes, comeback, paid: {<uid>: bool}, settled: {at, rows}|null}   play money: misses are
+ *                     pot: {buyIn, strikes, comeback, treasurer: <uid>, payHow: text, paid: {<uid>: bool}, settled: {at, rows}|null}   play money: misses are
  *                          strikes, the survivors split it; settled = the owner froze the payouts
  *                     houseRules: text   owner's free-text rules, shown on the Rules page, never scored
  *                     skips: {<YYYY-MM-DD>: bool}   days off: nothing counts, streaks jump them, weekly targets drop a day
@@ -613,7 +613,7 @@
       var n = list.filter(function (s) { return !s.pardon.pardoned; }).length;
       return {
         uid: uid, name: (players[uid] && players[uid].name) || "Player", strikes: n, list: list,
-        out: n >= limit, comeback: back > 0 && n === limit, paid: !!(pot.paid && pot.paid[uid] === true),
+        out: n >= limit, comeback: back > 0 && n === limit, paid: paidOf(pot, uid), paidByOwner: paidByOwnerOf(pot, uid),
       };
     }).sort(function (a, b) { return a.strikes - b.strikes || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0); });
     var alive = rows.filter(function (r) { return !r.out; }).length;
@@ -647,7 +647,7 @@
     var limit = pot.strikes >= 1 ? pot.strikes : 3;
     var back = pot.comeback > 0 ? Math.min(pot.comeback, pot.buyIn) : 0;
     var rows = pot.settled.rows.map(function (r) {
-      return { uid: r.uid, name: r.name, strikes: r.strikes, out: !!r.out, comeback: !!r.comeback, payout: r.payout, list: [], paid: !!(pot.paid && pot.paid[r.uid] === true) };
+      return { uid: r.uid, name: r.name, strikes: r.strikes, out: !!r.out, comeback: !!r.comeback, payout: r.payout, list: [], paid: paidOf(pot, r.uid), paidByOwner: paidByOwnerOf(pot, r.uid) };
     });
     var alive = rows.filter(function (r) { return !r.out; }).length;
     var survivor = rows.find(function (r) { return !r.out; });
@@ -669,6 +669,16 @@
     if (c === null || c > b) return { error: "The comeback can't be more than the buy-in." };
     return { patch: { pot: { buyIn: b, strikes: k, comeback: c } } };
   }
+
+  // Owner only: who holds the money, and how to pay them (free text, e.g. "Venmo @name"). The app never moves money.
+  var MAX_PAYHOW = 80;
+  function treasurerPatch(players, uid, payHow) {
+    if (uid && !(players && Object.prototype.hasOwnProperty.call(players, uid))) return { error: "Pick someone on the board." };
+    var how = String(payHow == null ? "" : payHow).replace(/\s+/g, " ").trim();
+    if (how.length > MAX_PAYHOW) return { error: "How to pay: " + MAX_PAYHOW + " characters at most." };
+    return { patch: { pot: { treasurer: uid || "", payHow: how } } };
+  }
+  function treasurerOf(ch) { return (ch && ch.pot && typeof ch.pot.treasurer === "string" && ch.pot.treasurer) || null; }
 
   // Owner only: house rules, free text everyone reads on the Rules page. The app never scores them.
   // Keeps line breaks; trims each line; at most MAX_RULES characters. Empty clears them.
@@ -693,6 +703,11 @@
     m[key] = !!yes;
     return { patch: { votes: m } };
   }
+
+  // Paid: the treasurer's tick, or an owner override (a separate map, so everyone can see which it was).
+  function paidOf(pot, uid) { return !!(pot && ((pot.paid && pot.paid[uid] === true) || (pot.ownerPaid && pot.ownerPaid[uid] === true))); }
+  function paidByOwnerOf(pot, uid) { return !!(pot && !(pot.paid && pot.paid[uid] === true) && pot.ownerPaid && pot.ownerPaid[uid] === true); }
+  function ownerPaidPatch(uid, on) { var m = {}; m[uid] = !!on; return { patch: { pot: { ownerPaid: m } } }; }
 
   function paidPatch(uid, paid) {
     var m = {};
@@ -813,7 +828,7 @@
     strikesFor: strikesFor, potStatus: potStatus, potPatch: potPatch, paidPatch: paidPatch,
     chFor: chFor, ownView: ownView, ownPatch: ownPatch, ownGoals: ownGoals, MAX_PERSONAL: MAX_PERSONAL, ownGoalsWithout: ownGoalsWithout, canAddOwn: canAddOwn,
     minGoalsOn: minGoalsOn, goalSetKey: goalSetKey, signoffFor: signoffFor, signoffVotePatch: signoffVotePatch, ownerSignoffPatch: ownerSignoffPatch, minGoalsPatch: minGoalsPatch,
-    strikeKey: strikeKey, appealPatch: appealPatch, votePatch: votePatch, houseRulesPatch: houseRulesPatch, MAX_RULES: MAX_RULES, settlePatch: settlePatch, unsettlePatch: unsettlePatch,
+    strikeKey: strikeKey, appealPatch: appealPatch, votePatch: votePatch, houseRulesPatch: houseRulesPatch, MAX_RULES: MAX_RULES, treasurerPatch: treasurerPatch, treasurerOf: treasurerOf, MAX_PAYHOW: MAX_PAYHOW, paidOf: paidOf, ownerPaidPatch: ownerPaidPatch, settlePatch: settlePatch, unsettlePatch: unsettlePatch,
     isSkip: isSkip, skipDates: skipDates, skipPatch: skipPatch, renamePatch: renamePatch, endPlan: endPlan, handoffPlan: handoffPlan,
     catchUpOpen: catchUpOpen, pruneEmpty: pruneEmpty, orphanGoals: orphanGoals, recoverGoalsPatch: recoverGoalsPatch, ownerTickPatch: ownerTickPatch, datesPatch: datesPatch, canMoveStart: canMoveStart, moveStartPatch: moveStartPatch, catchUpClosesMs: catchUpClosesMs, editableDates: editableDates, MAX_BACKDATE: MAX_BACKDATE,
     resultsDue: resultsDue, resultId: resultId, buildResult: buildResult, joinedBy: joinedBy,

@@ -39,6 +39,7 @@ function seed(scenario, now) {
   }
   if (scenario === "pot") ch.pot = { buyIn: 50, strikes: 2, paid: {} }; // riley has missed days: out at 2
   if (scenario === "pardon") ch.pot = { buyIn: 100, strikes: 3, comeback: 50, paid: { me: true } }; // riley asks a pardon, sam voted yes
+  if (scenario === "treasurer" || scenario === "treasurerm") ch.pot = { buyIn: 100, strikes: 3, treasurer: "sam", payHow: "Venmo @sam-t", paid: { sam: true } }; // sam holds the money; you own the app
   if (scenario === "goalcheck" || scenario === "goalcheckm") { // upcoming, everyone sets their own: sam has 3, riley 1, you none
     ch.start = d(2); ch.end = d(23); ch.goals = {}; ch.minGoals = 3;
     const g = (t, i, pw) => ({ text: t, addedOn: d(2), closedOn: null, order: i, perWeek: pw || null });
@@ -100,7 +101,7 @@ export function createDemoBackend(scenario = "active", opts = {}) {
   const listeners = { chat: new Set(), players: new Set(), challenges: new Set(), results: new Set(), members: new Set() };
   const authListeners = new Set();
   let user = scenario === "signedout" ? null : { uid: scenario === "notmember" ? "stranger" : "me", email: scenario === "notmember" ? "stranger@example.com" : "you@example.com" };
-  if (scenario === "member" || scenario === "goalcheckm") user = { uid: "sam", email: "sam@example.com" }; // a player who isn't the owner
+  if (scenario === "member" || scenario === "goalcheckm" || scenario === "treasurerm") user = { uid: "sam", email: "sam@example.com" }; // a player who isn't the owner
   if (scenario === "newplayer") { user = { uid: "newbie", email: "sam@example.com" }; store.members.emails.push("sam@example.com"); }
   const emit = (coll) => listeners[coll].forEach((cb) => cb(coll === "members" ? store.members : Object.assign({}, store[coll])));
   const wait = () => new Promise((r) => setTimeout(r, opts.latency ?? 120));

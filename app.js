@@ -412,8 +412,9 @@ function renderPot(ch) {
     h("div", { class: "pot" },
       h("div", { class: "pot-top" }, h("div", { class: "pot-amt" }, money(st.pot), h("small", {}, `${st.paid} of ${st.rows.length} paid`)), h("div", { class: "pot-each" }, ...each)),
       h("ol", { class: "pot-rows" }, st.rows.map((r) => h("li", { class: r.out ? (r.comeback ? "out cb" : "out") : null },
-        h("span", {}, h("b", {}, r.uid === state.user.uid ? "You" : r.name), r.paid ? h("small", { class: "paid" }, " · paid") : null),
+        h("span", {}, h("b", {}, r.uid === state.user.uid ? "You" : r.name), r.paid ? h("small", { class: "paid" }, r.paidByOwner ? " · paid (owner)" : " · paid") : null),
         chip(r)))),
+      payLine(ch, st),
       renderPardons(ch, st),
       settleBlock(ch, st),
       help("How the pot works", [
@@ -499,6 +500,22 @@ function settleBlock(ch, st) {
       if (r.error) return toast(r.error);
       try { await state.backend.mergeChallenge(ch.id, r.patch); toast("Settled. Payouts are locked."); } catch (e) { console.error(e); toast("That didn't save."); }
     } }, state.confirmSettle === ch.id ? "Tap again to lock the payouts" : "Settle the pot"));
+}
+
+// Who to pay, for everyone; and the treasurer's checklist right in the pot (they may have no menu powers otherwise).
+function payLine(ch, st) {
+  const t = L.treasurerOf(ch);
+  const owner = !!state.ms?.owner;
+  if (!t) return owner ? h("p", { class: "pay-line" }, h("b", {}, "No treasurer yet. "), "Pick one under Owner settings, The pot.") : null;
+  const name = state.players?.[t]?.name || "the treasurer";
+  const mine = st.rows.find((r) => r.uid === state.user.uid);
+  const isT = t === state.user.uid;
+  const how = ch.pot?.payHow;
+  return h("div", { class: "pay-line" },
+    h("p", {}, h("b", {}, isT ? "You're the treasurer. " : `Treasurer: ${name}. `),
+      isT ? "You hold the money and mark who paid below." : mine && !mine.paid ? [`Pay ${money(st.buyIn)} to ${name}`, how ? ` · ${how}` : "", "."] : mine?.paid ? "You're paid up." : ""),
+    isT && !st.settled ? h("details", { class: "help", open: true }, h("summary", {}, h("span", { class: "help-q", "aria-hidden": "true" }, "$"), "Mark who paid"),
+      paidList(ch, Object.keys(state.players || {}).sort((a, b) => (state.players[a].name || "").localeCompare(state.players[b].name || "")))) : null);
 }
 
 // Pardons: ask on your own strikes; vote on everyone else's asks. Closed once the challenge is final.
@@ -787,14 +804,59 @@ function potField(ch) {
       try { await state.backend.mergeChallenge(ch.id, r.patch); toast(pp.buyIn ? `Pot on: ${money(pp.buyIn)} each, out at ${pp.strikes}` + (pp.comeback ? `, comeback ${money(pp.comeback)}.` : ".") : "Pot off."); }
       catch (e) { console.error(e); toast("That didn't save."); }
     } }, "Save pot"),
-    pot.buyIn > 0 ? h("ul", { class: "off-list" }, ids.map((uid) => {
-      const paid = pot.paid?.[uid] === true;
-      return h("li", {}, h("span", {}, state.players[uid].name || "Player"),
-        h("button", { class: "mini-btn" + (paid ? " on" : ""), type: "button", "aria-pressed": String(paid), style: "min-height:44px", onclick: async () => {
-          try { await state.backend.mergeChallenge(ch.id, L.paidPatch(uid, !paid).patch); } catch (e) { console.error(e); toast("That didn't save."); }
-        } }, paid ? "✓ Paid" : "Mark paid"));
-    })) : null,
+    pot.buyIn > 0 ? treasurerField(ch, ids) : null,
+    pot.buyIn > 0 ? paidList(ch, ids) : null,
     h("p", { class: "seg-note" }, "Play money. Everyone on the board is in. Survivors split the pot evenly at the end; if nobody makes it, everyone gets their buy-in back. Comeback: what someone who's out gets back if they finish without another strike (up to the buy-in; 0 = off). Buy-in 0 turns the pot off."));
+}
+
+// Who holds the money. Separate from the owner on purpose: once someone else is treasurer, only they mark who paid.
+function treasurerField(ch, ids) {
+  const sel = h("select", { id: "potTreasurer", class: "cad", "aria-label": "Treasurer" },
+    h("option", { value: "" }, "No treasurer yet"), ids.map((uid) => h("option", { value: uid }, (state.players[uid].name || "Player") + (uid === state.user.uid ? " (you)" : ""))));
+  sel.value = L.treasurerOf(ch) || "";
+  const how = h("input", { id: "potPayHow", autocomplete: "off", maxlength: String(L.MAX_PAYHOW), value: ch.pot?.payHow || "", placeholder: "e.g. Venmo @costa-d…", "aria-label": "How to pay the treasurer" });
+  return h("div", { class: "treas" },
+    h("label", { class: "tlabel", for: "potTreasurer" }, "Treasurer (holds the money)"), sel,
+    h("label", { class: "tlabel", for: "potPayHow", style: "margin-top:8px;display:block" }, "How to pay them"), how,
+    h("button", { class: "mini-btn", type: "button", style: "min-height:44px;margin-top:8px", onclick: async () => {
+      const r = L.treasurerPatch(state.players, sel.value, how.value);
+      if (r.error) return toast(r.error);
+      const tu = r.patch.pot.treasurer;
+      try { await state.backend.mergeChallenge(ch.id, r.patch); toast(tu ? `${tu === state.user.uid ? "You hold" : (state.players[tu]?.name || "They") + " holds"} the money and marks who paid.` : "No treasurer set."); }
+      catch (e) { console.error(e); toast("That didn't save."); }
+    } }, "Save treasurer"),
+    h("p", { class: "seg-note" }, "Whoever holds the money marks who paid. When it's not you, you can still override, but everyone sees \u201cmarked by the owner\u201d next to it."));
+}
+
+// Mark who paid. Two separate records, each with its own button showing its own value: the treasurer's confirmation
+// (pot.paid) and, when someone else is treasurer, the owner's visible override (pot.ownerPaid). Paid = either one.
+function paidList(ch, ids) {
+  const pot = ch.pot || {};
+  const t = L.treasurerOf(ch);
+  const iAmT = !t || t === state.user.uid;
+  return h("ul", { class: "off-list" }, ids.map((uid) => {
+    const conf = pot.paid?.[uid] === true;
+    const over = pot.ownerPaid?.[uid] === true;
+    const name = state.players[uid].name || "Player";
+    const confirmKey = `${ch.id}:${uid}`;
+    const note = iAmT ? (over ? " · owner override: paid" : "") : (conf ? " · treasurer confirmed" : "");
+    const on = iAmT ? conf : over;
+    const label = iAmT ? (conf ? "✓ Paid" : "Mark paid")
+      : state.confirmOverride === confirmKey ? (over ? "Tap again: remove override" : "Tap again: override as owner")
+      : over ? "✓ Owner override" : "Override: paid";
+    const noteEl = note ? h("small", { class: iAmT ? "override" : "confirmed" }, note) : null;
+    // The treasurer already confirmed: nothing for the owner to override.
+    if (!iAmT && conf && !over) return h("li", {}, h("span", {}, name, noteEl), h("span", { class: "pd-state ok" }, "✓ Paid"));
+    return h("li", {}, h("span", {}, name, noteEl),
+      h("button", { class: "mini-btn" + (on ? " on" : ""), type: "button", "aria-pressed": String(on), style: "min-height:44px", onclick: async () => {
+        if (!iAmT && state.confirmOverride !== confirmKey) { state.confirmOverride = confirmKey; render(); state._sheetRebuild?.(); return; }
+        state.confirmOverride = null;
+        const r = iAmT ? L.paidPatch(uid, !conf) : L.ownerPaidPatch(uid, !over);
+        const msg = iAmT ? (conf ? `${name}: your confirmation removed.` : `${name}: paid, confirmed by you.`)
+          : (over ? `Owner override removed for ${name}.` : `Owner override saved for ${name}. Everyone sees it.`);
+        try { await state.backend.mergeChallenge(ch.id, r.patch); toast(msg); } catch (e) { console.error(e); toast("That didn't save."); }
+      } }, label));
+  }));
 }
 
 // Owner only: days off. Nothing counts on them for anyone; streaks jump them; weekly goals need one day fewer.
@@ -1136,7 +1198,7 @@ function rulesFor(ch) {
       "Ticking is on your honor. Everyone sees everyone's goals and ticks.",
     ]),
     pot ? sec("The pot", [
-      `Buy-in: ${money(pot.buyIn)} each, paid up front to whoever's holding it. The app never moves money.`,
+      `Buy-in: ${money(pot.buyIn)} each, paid up front to ${L.treasurerOf(ch) ? `the treasurer, ${state.players?.[L.treasurerOf(ch)]?.name || "?"}${pot.payHow ? ` (${pot.payHow})` : ""}` : "the treasurer"}. Only the treasurer marks who paid; an owner override shows as \u201cmarked by the owner\u201d. The app never moves money.`,
       "A strike is a day you didn't finish every daily goal, or a weekly goal you came up short on when the week locks.",
       `Out at ${lim} strike${lim === 1 ? "" : "s"}.`,
       "Everyone still in at the end splits the pot evenly. If nobody makes it, everyone gets their buy-in back.",
@@ -1175,7 +1237,7 @@ function openHelp(open = null) {
     q("target", "What's “your target”?", p("On a group goal, your own number, like 180 g of protein. Set it under Edit goals. Your own goals don't need one: the goal is the target.")),
     q("weekly", "How do weekly goals work?", p("Some goals are “N days a week” instead of every day. Weeks run Monday to Sunday. The bar shows how close you are.")),
     q("strike", "What's a strike?", p("A day you didn't finish every daily goal, or a weekly goal you came up short on when the week ends. A day only counts once it locks at noon the next day. Days off never count.")),
-    q("pot", "How does the pot work?", p("Everyone puts in the buy-in up front, outside the app. Too many strikes and you're out. Whoever is still in at the end splits it. If nobody makes it, everyone gets their money back.")),
+    q("pot", "How does the pot work?", p("Everyone pays the buy-in up front to the treasurer (the pot shows who and how). Only the treasurer marks who paid. Too many strikes and you're out. Whoever is still in at the end splits it. If nobody makes it, everyone gets their money back.")),
     q("comeback", "I'm out. Now what?", p("Keep going. If the challenge has a comeback, finish without another strike and you get that amount back. You can't win the pot that way, but it cuts your loss.")),
     q("pardon", "Can a strike be forgiven?", p("Yes. Under The Pot, Your strikes, tap Ask for a pardon. The others vote. More than half of them saying yes wipes it. You can't vote on your own.")),
     q("board", "What's the Daily Board?", p("Each day's final scores, posted once the day locks at noon. The top of the list is a live view of today.")),
@@ -1200,6 +1262,9 @@ function inviteText() {
     "iPhone: open the link in Safari, tap Share (square with the up arrow), then “Add to Home Screen”.",
     "Android: open the link in Chrome, tap ⋮ (top right), then “Add to Home screen” or “Install app”.",
     "",
+    ...(() => { const c = current(); const t = L.treasurerOf(c); return c?.pot?.buyIn > 0 ? ["", `Buy-in: ${money(c.pot.buyIn)}` + (t ? `, to ${state.players?.[t]?.name || "the treasurer"}${c.pot.payHow ? ` (${c.pot.payHow})` : ""}.` : ". I'll say who to pay.")] : []; })(),
+    "",
+    "Before it starts: set your own goals in the app, then check everyone else's (Fair or Too easy).",
     "Every day: tick your goals. Miss one and it's a strike. Tap “Rules” or “How it works” in the app for the rest.",
   ].join("\n");
 }

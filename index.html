@@ -515,6 +515,15 @@ button, a, summary, select, input, textarea { touch-action: manipulation; }
 .sheet-in { overscroll-behavior: contain; }
 h1, h2, h3, .sheet h2, .callout h2 { text-wrap: balance; }
 
+/* treasurer */
+.treas { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.pay-line { margin: 12px 0 0; padding: 10px 12px; border-radius: 12px; background: color-mix(in oklch, var(--blaze) 10%, transparent); font-size: 14px; color: var(--ink-soft); }
+.pay-line p { margin: 0; }
+.pay-line b { color: var(--ink); }
+.override { color: var(--warn); }
+.confirmed { color: var(--hit); }
+.pay-line { background: color-mix(in oklch, var(--ice) 8%, oklch(0 0 0 / 0.2)); border: 1px solid color-mix(in oklch, var(--ice) 25%, var(--line)); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
 }
