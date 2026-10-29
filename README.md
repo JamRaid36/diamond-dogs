@@ -1,4 +1,4 @@
-# Diamond Dogs
+# Alpha Pack
 
 A phone page for a small group's daily challenge: tick your goals, see the pack's progress, and a daily board that posts itself.
 

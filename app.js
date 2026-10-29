@@ -1,4 +1,4 @@
-// Diamond Dogs — page controller. Renders from shared state; every write goes through the backend.
+// Alpha Pack — page controller. Renders from shared state; every write goes through the backend.
 // Backends: ?demo=<scenario> uses backend-demo.js (sample data, labelled); otherwise Firebase from config.js.
 const L = window.DDLogic;
 const $ = (s) => document.querySelector(s);
@@ -117,7 +117,7 @@ function gate(title, sub, ...rest) {
   document.body.classList.add("gated");
   const head = title
     ? [h("img", { class: "gate-badge", src: "logo-96.png", alt: "", width: "96", height: "78" }), h("h1", { class: "big" }, title[0], h("span", {}, title[1]))]
-    : [h("h1", { class: "hero-h" }, h("img", { class: "hero-logo", src: "logo-hero.webp", alt: "Diamond Dogs", width: "720", height: "582" }))];
+    : [h("h1", { class: "hero-h" }, h("img", { class: "hero-logo", src: "logo-hero.webp", alt: "Alpha Pack", width: "720", height: "582" }))];
   app.replaceChildren(demoBanner() || "", h("section", { class: "gate" + (title ? "" : " hero") }, ...head, h("p", {}, sub), ...rest));
 }
 

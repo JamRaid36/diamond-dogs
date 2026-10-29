@@ -28,7 +28,7 @@ function seed(scenario, now) {
     },
   };
   if (scenario === "showcase") { // marketing screenshots: Jason's real season-1 goals, sample ticks
-    ch.name = "Diamond Dogs Season 1"; ch.start = d(-2); ch.end = d(4); ch.createdAt = now;
+    ch.name = "Alpha Pack Season 1"; ch.start = d(-2); ch.end = d(4); ch.createdAt = now;
     ch.goals = {
       g1: { text: "Protein 130g", addedOn: d(-2), closedOn: null, order: 1, perWeek: null },
       g2: { text: "Under 2,000 calories", addedOn: d(-2), closedOn: null, order: 2, perWeek: 5 },

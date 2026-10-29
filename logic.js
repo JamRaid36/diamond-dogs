@@ -1,4 +1,4 @@
-/* Diamond Dogs — pure game logic. No DOM, no network, no clock reads except where `now` is passed in.
+/* Alpha Pack — pure game logic. No DOM, no network, no clock reads except where `now` is passed in.
  * Loaded as a classic script in the page (window.DDLogic) and required by the node test suite.
  * Data shapes (Firestore):
  *   challenges/<id>  {name, start, end, createdBy, createdAt,
