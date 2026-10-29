@@ -36,6 +36,10 @@ const fmtDay = (d, opts = { weekday: "short", month: "short", day: "numeric" }) 
 let toastTimer;
 function toast(msg) {
   const t = $("#toast");
+  // An open sheet is a modal dialog in the browser's top layer: anything outside it, this toast included, sits
+  // behind it. Move the toast into the sheet while it's open, and back out after.
+  const host = sheet.open ? sheet : document.body;
+  if (t.parentElement !== host) host.append(t);
   t.textContent = msg;
   t.classList.add("show");
   clearTimeout(toastTimer);
