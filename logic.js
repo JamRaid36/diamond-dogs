@@ -704,9 +704,11 @@
     return { patch: { votes: m } };
   }
 
-  // Paid: the treasurer's tick, or an owner override (a separate map, so everyone can see which it was).
-  function paidOf(pot, uid) { return !!(pot && ((pot.paid && pot.paid[uid] === true) || (pot.ownerPaid && pot.ownerPaid[uid] === true))); }
-  function paidByOwnerOf(pot, uid) { return !!(pot && !(pot.paid && pot.paid[uid] === true) && pot.ownerPaid && pot.ownerPaid[uid] === true); }
+  // Paid is pot.paid alone: the treasurer's tick, or the creator's (who has no limits). pot.ownerPaid is only a marker
+  // that the creator ticked it on someone else's watch, shown to the creator; it never makes anyone paid by itself, so
+  // the treasurer can always untick.
+  function paidOf(pot, uid) { return !!(pot && pot.paid && pot.paid[uid] === true); }
+  function paidByOwnerOf(pot, uid) { return !!(paidOf(pot, uid) && pot.ownerPaid && pot.ownerPaid[uid] === true); }
   function ownerPaidPatch(uid, on) { var m = {}; m[uid] = !!on; return { patch: { pot: { ownerPaid: m } } }; }
 
   function paidPatch(uid, paid) {

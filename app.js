@@ -412,7 +412,7 @@ function renderPot(ch) {
     h("div", { class: "pot" },
       h("div", { class: "pot-top" }, h("div", { class: "pot-amt" }, money(st.pot), h("small", {}, `${st.paid} of ${st.rows.length} paid`)), h("div", { class: "pot-each" }, ...each)),
       h("ol", { class: "pot-rows" }, st.rows.map((r) => h("li", { class: r.out ? (r.comeback ? "out cb" : "out") : null },
-        h("span", {}, h("b", {}, r.uid === state.user.uid ? "You" : r.name), r.paid ? h("small", { class: "paid" }, r.paidByOwner ? " · paid (owner)" : " · paid") : null),
+        h("span", {}, h("b", {}, r.uid === state.user.uid ? "You" : r.name), r.paid ? h("small", { class: "paid" }, " · paid") : null),
         chip(r)))),
       payLine(ch, st),
       renderPardons(ch, st),
@@ -825,7 +825,7 @@ function treasurerField(ch, ids) {
       try { await state.backend.mergeChallenge(ch.id, r.patch); toast(tu ? `${tu === state.user.uid ? "You hold" : (state.players[tu]?.name || "They") + " holds"} the money and marks who paid.` : "No treasurer set."); }
       catch (e) { console.error(e); toast("That didn't save."); }
     } }, "Save treasurer"),
-    h("p", { class: "seg-note" }, "Whoever holds the money marks who paid. When it's not you, you can still override, but everyone sees \u201cmarked by the owner\u201d next to it."));
+    h("p", { class: "seg-note" }, "Whoever holds the money marks who paid, and nobody else can, except you as creator."));
 }
 
 // Mark who paid. Two separate records, each with its own button showing its own value: the treasurer's confirmation
@@ -833,13 +833,14 @@ function treasurerField(ch, ids) {
 function paidList(ch, ids) {
   const pot = ch.pot || {};
   const t = L.treasurerOf(ch);
-  const iAmT = !t || t === state.user.uid;
+  // The creator ticks like the treasurer, unlabeled (Jason 2026-10-29: "hide the label").
+  const iAmT = !t || t === state.user.uid || !!state.ms?.owner;
   return h("ul", { class: "off-list" }, ids.map((uid) => {
     const conf = pot.paid?.[uid] === true;
     const over = pot.ownerPaid?.[uid] === true;
     const name = state.players[uid].name || "Player";
     const confirmKey = `${ch.id}:${uid}`;
-    const note = iAmT ? (over ? " · owner override: paid" : "") : (conf ? " · treasurer confirmed" : "");
+    const note = state.ms?.owner && conf && over && t && t !== state.user.uid ? " · marked by you" : iAmT ? "" : (conf ? " · treasurer confirmed" : "");
     const on = iAmT ? conf : over;
     const label = iAmT ? (conf ? "✓ Paid" : "Mark paid")
       : state.confirmOverride === confirmKey ? (over ? "Tap again: remove override" : "Tap again: override as owner")
@@ -851,7 +852,10 @@ function paidList(ch, ids) {
       h("button", { class: "mini-btn" + (on ? " on" : ""), type: "button", "aria-pressed": String(on), style: "min-height:44px", onclick: async () => {
         if (!iAmT && state.confirmOverride !== confirmKey) { state.confirmOverride = confirmKey; render(); state._sheetRebuild?.(); return; }
         state.confirmOverride = null;
+        // The creator's tick on someone else's watch also leaves a marker only the creator sees ("marked by you").
+        const creatorTick = iAmT && !!state.ms?.owner && t && t !== state.user.uid;
         const r = iAmT ? L.paidPatch(uid, !conf) : L.ownerPaidPatch(uid, !over);
+        if (creatorTick) r.patch.pot.ownerPaid = { [uid]: !conf };
         const msg = iAmT ? (conf ? `${name}: your confirmation removed.` : `${name}: paid, confirmed by you.`)
           : (over ? `Owner override removed for ${name}.` : `Owner override saved for ${name}. Everyone sees it.`);
         try { await state.backend.mergeChallenge(ch.id, r.patch); toast(msg); } catch (e) { console.error(e); toast("That didn't save."); }
@@ -1198,7 +1202,7 @@ function rulesFor(ch) {
       "Ticking is on your honor. Everyone sees everyone's goals and ticks.",
     ]),
     pot ? sec("The pot", [
-      `Buy-in: ${money(pot.buyIn)} each, paid up front to ${L.treasurerOf(ch) ? `the treasurer, ${state.players?.[L.treasurerOf(ch)]?.name || "?"}${pot.payHow ? ` (${pot.payHow})` : ""}` : "the treasurer"}. Only the treasurer marks who paid; an owner override shows as \u201cmarked by the owner\u201d. The app never moves money.`,
+      `Buy-in: ${money(pot.buyIn)} each, paid up front to ${L.treasurerOf(ch) ? `the treasurer, ${state.players?.[L.treasurerOf(ch)]?.name || "?"}${pot.payHow ? ` (${pot.payHow})` : ""}` : "the treasurer"}. Only the treasurer marks who paid. The app never moves money.`,
       "A strike is a day you didn't finish every daily goal, or a weekly goal you came up short on when the week locks.",
       `Out at ${lim} strike${lim === 1 ? "" : "s"}.`,
       "Everyone still in at the end splits the pot evenly. If nobody makes it, everyone gets their buy-in back.",
