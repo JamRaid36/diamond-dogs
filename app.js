@@ -100,14 +100,17 @@ function demoBanner() {
 
 function renderLoading() { app.replaceChildren(h("div", { class: "skeleton", "aria-label": "Loading" })); }
 
+// title null = the logo carries the name (sign-in); otherwise a small badge sits above the stencil title.
 function gate(title, sub, ...rest) {
   document.body.classList.add("gated");
-  app.replaceChildren(demoBanner() || "", h("section", { class: "gate" },
-    h("h1", { class: "big" }, title[0], h("span", {}, title[1])), h("p", {}, sub), ...rest));
+  const head = title
+    ? [h("img", { class: "gate-badge", src: "logo-96.png", alt: "", width: "96", height: "78" }), h("h1", { class: "big" }, title[0], h("span", {}, title[1]))]
+    : [h("h1", { class: "hero-h" }, h("img", { class: "hero-logo", src: "logo-hero.webp", alt: "Diamond Dogs", width: "720", height: "582" }))];
+  app.replaceChildren(demoBanner() || "", h("section", { class: "gate" + (title ? "" : " hero") }, ...head, h("p", {}, sub), ...rest));
 }
 
 function renderNoConfig() {
-  gate(["Diamond", "Dogs"], "Not hooked up yet. Jason's finishing the setup.",
+  gate(null, "Not hooked up yet. Jason's finishing the setup.",
     h("a", { class: "btn ghost", href: "?demo=active" }, "See the demo"));
 }
 
@@ -119,7 +122,7 @@ function renderSignIn() {
   } });
   btn.innerHTML = SVG.google;
   btn.append("Sign in with Google");
-  gate(["Diamond", "Dogs"], "Tick your goals every day. See how the pack is doing. Nobody gets left behind.", btn,
+  gate(null, "Tick your goals every day. See how the pack is doing. Nobody gets left behind.", btn,
     h("p", { class: "fine" }, "Use the Google account Jason added to the group."));
 }
 

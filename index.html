@@ -9,7 +9,8 @@
 <meta name="theme-color" content="#14181d" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Diamond Dogs">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='10' y='4' width='44' height='56' rx='14' fill='%2314181d'/%3E%3Ccircle cx='32' cy='14' r='4' fill='%23eef1f4'/%3E%3Cpath d='M32 24l10 12-10 12-10-12z' fill='%23f08a3c'/%3E%3C/svg%3E">
+<link rel="icon" type="image/png" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -30,8 +31,9 @@
   --tag-edge: oklch(0.74 0.014 240);
   --hit: oklch(0.6 0.15 152);
   --hit-soft: oklch(0.92 0.05 152);
-  --blaze: oklch(0.68 0.17 52);
-  --blaze-soft: oklch(0.93 0.05 60);
+  --blaze: oklch(0.66 0.15 75);   /* logo gold, deepened for contrast on light */
+  --blaze-soft: oklch(0.94 0.06 88);
+  --ice: oklch(0.62 0.13 240);    /* logo diamond blue */
   --warn: oklch(0.58 0.16 28);
   --shadow: 0 1px 0 oklch(1 0 0 / 0.6) inset, 0 1px 2px oklch(0.3 0.02 250 / 0.08), 0 8px 24px oklch(0.3 0.02 250 / 0.06);
   --display: "Big Shoulders Display", "Arial Narrow", "Helvetica Neue", sans-serif;
@@ -55,8 +57,9 @@
     --tag-edge: oklch(0.42 0.018 250);
     --hit: oklch(0.76 0.16 152);
     --hit-soft: oklch(0.32 0.06 152);
-    --blaze: oklch(0.77 0.15 58);
-    --blaze-soft: oklch(0.33 0.06 55);
+    --blaze: oklch(0.83 0.15 85);
+    --blaze-soft: oklch(0.34 0.06 80);
+    --ice: oklch(0.78 0.11 235);
     --warn: oklch(0.72 0.15 30);
     --shadow: 0 1px 0 oklch(1 0 0 / 0.05) inset, 0 8px 28px oklch(0 0 0 / 0.35);
     color-scheme: dark;
@@ -80,6 +83,8 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px);
   padding-top: env(safe-area-inset-top, 0px); border-bottom: 1px solid color-mix(in oklch, var(--line) 70%, transparent); }
 .top .wrap { display: flex; align-items: center; gap: 12px; min-height: 56px; }
+.mark-wrap { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.mark-wrap img { width: 44px; height: 36px; object-fit: contain; flex: none; filter: drop-shadow(0 1px 2px oklch(0 0 0 / 0.25)); }
 .mark { font: 800 22px/1 var(--stencil); letter-spacing: 0.06em; text-transform: uppercase; margin: 0; flex: 1; min-width: 0; }
 .mark span { color: var(--blaze); }
 .chip { display: inline-flex; align-items: center; gap: 6px; font: 500 11px/1 var(--mono); letter-spacing: 0.04em;
@@ -201,6 +206,13 @@ main { padding-block: 18px 48px; display: grid; gap: 28px; }
 
 /* empty / gate screens */
 .gate { min-height: calc(100dvh - 120px); display: grid; align-content: center; gap: 22px; padding-block: 24px; }
+.gate.hero { align-content: start; padding-top: 8px; gap: 18px; }
+.hero-h { margin: 0; }
+.hero-logo { display: block; width: min(100%, 420px); height: auto; margin: 0 auto; filter: drop-shadow(0 18px 40px color-mix(in srgb, var(--ice) 35%, transparent)); }
+.gate.hero p { margin-inline: auto; text-align: center; }
+.gate.hero .btn { width: 100%; }
+.gate-badge { width: 72px; height: auto; }
+body.gated .top .mark-wrap img { visibility: hidden; }
 .gate .big { font: 800 clamp(56px, 18vw, 92px)/0.86 var(--stencil); text-transform: uppercase; margin: 0; letter-spacing: 0.02em; }
 .gate .big span { color: var(--blaze); display: block; }
 .gate p { margin: 0; color: var(--ink-soft); font-size: 17px; max-width: 34ch; }
@@ -208,7 +220,7 @@ main { padding-block: 18px 48px; display: grid; gap: 28px; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 54px; padding: 0 22px; border-radius: 16px; border: 0;
   background: var(--ink); color: var(--bg); font: 700 16px/1 var(--body); transition: transform 120ms var(--ease), opacity 120ms; }
 .btn:active { transform: scale(0.98); }
-.btn.blaze { background: var(--blaze); color: oklch(0.2 0.03 50); }
+.btn.blaze { background: var(--blaze); color: oklch(0.2 0.03 60); }
 .btn.ghost { background: transparent; color: var(--ink); border: 1.5px solid var(--line); }
 .btn[disabled] { opacity: 0.55; cursor: progress; }
 .btn svg { width: 20px; height: 20px; }
@@ -281,7 +293,7 @@ body.gated .top .mark { visibility: hidden; }
 <body>
 <header class="top">
   <div class="wrap">
-    <p class="mark">Diamond <span>Dogs</span></p>
+    <div class="mark-wrap"><img src="logo-96.png" alt="" width="44" height="36"><p class="mark">Diamond <span>Dogs</span></p></div>
     <span class="chip" id="dayChip" hidden></span>
     <button class="icon-btn" id="menuBtn" type="button" aria-label="Challenge settings" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
