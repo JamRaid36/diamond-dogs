@@ -452,7 +452,7 @@ function cadenceSelect(id, perWeek, onChange, label) {
 const sheet = $("#sheet");
 function openSheet(build) {
   const body = $("#sheetBody");
-  body.replaceChildren(h("div", { class: "grab", "aria-hidden": "true" }), ...build());
+  body.replaceChildren(h("div", { class: "grab", "aria-hidden": "true" }), ...build().filter(Boolean)); // builders return null for hidden parts
   if (!sheet.open) sheet.showModal();
 }
 sheet.addEventListener("click", (e) => { if (e.target === sheet) sheet.close(); });
