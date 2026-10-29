@@ -76,6 +76,9 @@ export function createFirebaseBackend(config) {
     async setOwnGoals(id, uid, goals) { await updateDoc(doc(db, "challenges", id), new FieldPath("playerGoals", uid), goals); },
     // Owner only (the rules refuse anyone else).
     async deleteChallenge(id) { await deleteDoc(doc(db, "challenges", id)); },
+    // Owner only (rules): snapshots.
+    async createBackup(id, data) { await setDoc(doc(db, "backups", id), data); },
+    async deleteBackup(id) { await deleteDoc(doc(db, "backups", id)); },
     async deletePlayer(uid) { await deleteDoc(doc(db, "players", uid)); },
     // Owner only: re-post a day in one write (the rules allow the owner, same date, same challenge).
     async replaceResult(date, data) { await setDoc(doc(db, "results", date), data); },

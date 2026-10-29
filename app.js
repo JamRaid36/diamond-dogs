@@ -130,12 +130,12 @@ function renderInner() {
   ].filter(Boolean));
 }
 
-const DEV_SCENES = [["invited", "New player, from the invite"], ["active", "Mid-challenge (owner)"], ["goalcheck", "Before the start (owner)"], ["goalcheckm", "Before the start (player)"],
+const DEV_SCENES = [["season1", "Season 1: you, the owner (send the invite)"], ["invited", "Season 1: a new player, from the invite"], ["active", "Mid-challenge (owner)"], ["goalcheck", "Before the start (owner)"], ["goalcheckm", "Before the start (player)"],
   ["pardon", "Pardon vote"], ["treasurer", "Treasurer (owner view)"], ["treasurerm", "Treasurer (his view)"], ["over", "Finished, settle the pot"],
   ["member", "A player, not the owner"], ["empty", "Brand-new player"], ["signedout", "Signed out"]];
 function demoBanner() {
   if (window.DD_DEV) {
-    const cur = new URLSearchParams(location.search).get("demo") || "active";
+    const cur = new URLSearchParams(location.search).get("demo") || "season1";
     return h("div", { class: "dev-bar", role: "note" }, h("b", {}, "DEV PREVIEW"), " · sample players, nothing is saved. Check it, then tell Leo \u201cship it\u201d.",
       h("label", { class: "tlabel", for: "devScene", style: "display:block;margin-top:8px" }, "Try a situation"),
       (() => { const sel = h("select", { id: "devScene", class: "cad", onchange: (e) => { location.search = "?demo=" + e.target.value; } },
@@ -260,7 +260,7 @@ function renderYou(ch) {
         h("button", { type: "button", "aria-pressed": String(d === date), onclick: () => { state.viewDay = d; render(); } }, dayLabel(d)))),
       h("p", { class: "seg-note" }, "Yesterday stays open until noon.")) : null,
     goals.length ? h("ul", { class: "goals" }, goals.map((g) => goalRow(ch, p, g, date, t))) : null,
-    weekly.length ? h("div", { class: "wk-head" }, h("span", {}, "This week"), h("small", {}, `${wk.met} of ${wk.of} met · resets Monday`)) : null,
+    weekly.length ? h("div", { class: "wk-head" }, h("span", {}, "This week"), h("small", {}, `${wk.met} of ${wk.of} met · resets ${fmtDay(L.addDays(L.weekStart(date, ch), 7), { weekday: "long" })}`)) : null,
     weekly.length ? h("ul", { class: "goals" }, weekly.map((g) => goalRow(ch, p, g, date, t))) : null,
     off ? h("p", { class: "empty" }, h("b", {}, "Day off. "), "Nothing counts today, and every streak picks up where it left off.") :
       !goals.length && !weekly.length ? h("p", { class: "empty" }, h("b", {}, "You have no goals. "), "Add yours under Edit goals. With none, every day counts as a strike.") : null,
@@ -334,7 +334,7 @@ function renderUpcoming(ch) {
     goals.length ? h("div", { class: "lockline", role: "note" }, `These are your goals. You can tick them from ${fmtDay(ch.start, { weekday: "long" })}. Everyone can see everyone's goals in the Goal check below.`) : null,
     goals.length ? h("ul", { class: "goals" }, goals.map((g) => h("li", {}, h("div", { class: "goal", "aria-disabled": "true" },
       h("span", { class: "box" }), h("span", { class: "goal-text" }, h("strong", {}, g.text), h("small", {}, [g.personal ? "Yours" : "Group goal", L.cadenceLabel(g), !g.personal && me().targets?.[g.id] ? `Your target: ${me().targets[g.id]}` : null].filter(Boolean).join(" · ")))))))
-      : h("p", { class: "empty" }, h("b", {}, "You haven't set any goals yet. "), "Anything counts: protein, a workout, read a chapter. With none, every day is a strike."),
+      : h("p", { class: "empty" }, h("b", {}, "You haven't set any goals yet. "), "Anything counts: read a chapter, pray, practice an instrument, lift, eat clean. With none, every day is a strike."),
     h("div", { class: "you-foot" }, h("span", { class: "foot-note" }, (() => { const n = goals.filter((g) => g.personal).length; return n ? `${n} goal${n === 1 ? "" : "s"} of your own · up to ${L.MAX_PERSONAL}` : "No goals of your own yet"; })()), h("button", { class: "link-btn", type: "button", onclick: openSettings }, goals.length ? "Edit goals" : "Set your goals")));
 }
 
@@ -817,20 +817,24 @@ function recoverField(ch) {
 // Owner only: change the dates. Moving the start back on set-up day also opens the catch-up for everyone.
 function datesField(ch) {
   const start = h("input", { id: "editStart", type: "date", value: ch.start });
-  const end = h("input", { id: "editEnd", type: "date", value: ch.end });
+  const wk = L.weeksOf(ch);
+  const end = h("select", { id: "editWeeks", class: "cad", "aria-label": "How many weeks" },
+    Number.isInteger(wk) ? null : h("option", { value: "" }, `Now ${L.challengeLength(ch)} days (not whole weeks)`),
+    Array.from({ length: 12 }, (_, i) => h("option", { value: String(i + 1) }, `${i + 1} week${i ? "s" : ""}`)));
+  end.value = Number.isInteger(wk) && wk >= 1 && wk <= 12 ? String(wk) : "";
+  const endsOn = () => (L.isDate(start.value) && end.value ? L.endForWeeks(start.value, Number(end.value)) : ch.end);
   return h("div", { class: "field" }, h("label", {}, "Dates"),
-    h("div", { class: "row2" }, h("div", {}, h("label", { class: "tlabel", for: "editStart" }, "Starts"), start), h("div", {}, h("label", { class: "tlabel", for: "editEnd" }, "Ends"), end)),
+    h("div", { class: "row2" }, h("div", {}, h("label", { class: "tlabel", for: "editStart" }, "Starts"), start), h("div", {}, h("label", { class: "tlabel", for: "editWeeks" }, "How long"), end)),
     h("button", { class: "mini-btn", type: "button", style: "min-height:44px;margin-top:8px", onclick: async () => {
-      const r = L.datesPatch(ch, start.value, end.value);
+      const r = L.datesPatch(ch, start.value, endsOn());
       if (r.error) return toast(r.error);
       try {
         await state.backend.mergeChallenge(ch.id, r.patch);
         state.viewDay = null;
-        const moved = Object.assign({}, ch, { start: start.value, end: end.value });
-        toast(L.catchUpOpen(moved, now()) ? `Starts ${fmtDay(start.value, { weekday: "long" })} now. Everyone can catch up until noon tomorrow.` : "Dates saved.");
+        toast(`Dates saved: ${fmtDay(r.patch.start, { month: "short", day: "numeric" })} to ${fmtDay(r.patch.end, { month: "short", day: "numeric" })}.`);
       } catch (e2) { console.error(e2); toast("That didn't save."); }
     } }, "Save dates"),
-    h("p", { class: "seg-note" }, "Start today or later. Once a day locks at noon the next day, only you can change its ticks."));
+    h("p", { class: "seg-note" }, "Whole weeks, so every week is a full 7 days. Start today or later. Once a day locks at noon the next day, only you can change its ticks."));
 }
 
 // Owner only: everything about the challenge itself, at the top of the menu.
@@ -854,6 +858,7 @@ function ownerControls(ch) {
     potField(ch),
     minGoalsField(ch),
     houseRulesField(ch),
+    backupsField(),
     end.error ? null : h("div", { class: "field" },
       h("button", { class: "mini-btn danger", type: "button", style: "min-height:44px", onclick: async () => {
         if (!sure) { state.confirmEnd = ch.id; openSettings(state._settingsId); return; }
@@ -1047,19 +1052,23 @@ function openCreate() {
   const build = () => {
     const name = h("input", { id: "chName", maxlength: "60", placeholder: "Fall Cut", value: state._draftName || "" });
     const start = h("input", { id: "chStart", type: "date", value: state._draftStart || t, min: L.addDays(t, -L.MAX_BACKDATE) });
-    const end = h("input", { id: "chEnd", type: "date", value: state._draftEnd || L.addDays(t, 20), min: t });
+    // Length in whole weeks, so every week is a full 7 days (end = start + 7 x weeks - 1).
+    const end = h("select", { id: "chWeeks", class: "cad", "aria-label": "How many weeks" },
+      Array.from({ length: 12 }, (_, i) => h("option", { value: String(i + 1) }, `${i + 1} week${i ? "s" : ""}`)));
+    end.value = String(state._draftWeeks || 3);
     const list = h("ul", { class: "glist" }, goals.map((g, i) => h("li", { class: "gitem" }, h("span", { class: "n" }, String(i + 1)),
       h("div", { class: "gfields" },
         h("input", { id: `chGoal${i}`, maxlength: "60", value: g.text, autocomplete: "off", placeholder: "e.g. 8 hours of sleep…", "aria-label": `Group goal ${i + 1}`, oninput: (e) => { goals[i].text = e.target.value; } }),
         cadenceSelect(`chCad${i}`, g.perWeek, (v) => { goals[i].perWeek = v; }, `How often for goal ${i + 1}`)))));
     const err = (k) => errors[k] ? h("p", { class: "err" }, errors[k]) : null;
     const plan = state._handoffFor ? L.handoffPlan(challengeList(), state._handoffFor) : [];
-    const keep = () => { state._draftName = name.value; state._draftStart = start.value; state._draftEnd = end.value; };
+    const keep = () => { state._draftName = name.value; state._draftStart = start.value; state._draftWeeks = end.value; };
     return [
       h("h2", { id: "sheetTitle" }, "New challenge"),
       h("p", { class: "sub" }, "Everyone sets their own goals before it starts, and the pack checks each list. Start today or later."),
       h("div", { class: "field" }, h("label", { for: "chName" }, "Name"), name, err("name")),
-      h("div", { class: "row2" }, h("div", { class: "field" }, h("label", { for: "chStart" }, "Starts"), start, err("start")), h("div", { class: "field" }, h("label", { for: "chEnd" }, "Ends"), end, err("end"))),
+      h("div", { class: "row2" }, h("div", { class: "field" }, h("label", { for: "chStart" }, "Starts"), start, err("start")), h("div", { class: "field" }, h("label", { for: "chWeeks" }, "How long"), end, err("end"))),
+      h("p", { class: "seg-note", style: "margin-top:-8px" }, "Whole weeks, so every week is a full 7 days. It ends the day before the same weekday it starts on."),
       h("div", { class: "field", style: "margin-bottom:6px" }, h("label", {}, "Group goals (optional)"),
         h("p", { class: "seg-note", style: "margin:0" }, "Leave this empty and everyone just sets their own. A group goal goes on everyone's list, and everyone has to do it."), err("goals")),
       goals.length ? list : null,
@@ -1069,7 +1078,7 @@ function openCreate() {
         : `"${x.name}" ends ${fmtDay(x.patch.end, { weekday: "long", month: "short", day: "numeric" })}. Its ticks and standings stay. `).join(""))) : null,
       h("div", { class: "sheet-actions", style: "margin-top:18px" }, closeBtn(), h("button", { class: "btn blaze", type: "button", onclick: async (e) => {
         keep();
-        const v = L.validateChallenge({ name: name.value, start: start.value, end: end.value, goals }, t, now());
+        const v = L.validateChallenge({ name: name.value, start: start.value, end: L.isDate(start.value) ? L.endForWeeks(start.value, Number(end.value)) : "", goals }, t, now());
         errors = v.errors;
         if (!v.ok) { openSheet(build); return; }
         const handoff = L.handoffPlan(challengeList(), start.value);
@@ -1078,7 +1087,7 @@ function openCreate() {
         try {
           await state.backend.createChallenge(Object.assign(v.value, { minGoals: 3, createdBy: state.user.uid, createdAt: now() }));
           for (const x of handoff) { if (x.remove) await state.backend.deleteChallenge(x.id); else await state.backend.mergeChallenge(x.id, x.patch); }
-          state._draftName = state._draftStart = state._draftEnd = state._handoffFor = null;
+          state._draftName = state._draftStart = state._draftWeeks = state._handoffFor = null;
           sheet.close();
           toast(v.value.start > t && current() && current().start <= t ? `Set for ${fmtDay(v.value.start, { weekday: "long" })}. It's under Up next.` : "Challenge set. Go get it.");
         } catch (e2) { console.error(e2); e.target.disabled = false; toast("That didn't save. Try again."); }
@@ -1149,7 +1158,7 @@ function openSettings(id) {
     const group = shown(L.goalList(ch));
     const openOwn = own.filter((g) => !g.closedOn || g.closedOn > t).length;
     const adder = (id, own) => {
-      const input = h("input", { id, "data-keep": true, maxlength: "60", autocomplete: "off", placeholder: own ? "e.g. Protein 150 g, Read a chapter…" : "A goal for everyone…", "aria-label": own ? "New goal of yours" : "New group goal" });
+      const input = h("input", { id, "data-keep": true, maxlength: "60", autocomplete: "off", placeholder: own ? "e.g. Read a chapter, Pray 15 min, Protein 150 g…" : "e.g. 8 hours of sleep, No phone at dinner…", "aria-label": own ? "New goal of yours" : "New group goal" });
       let cad = null;
       return h("div", { class: "field" }, h("label", { for: id }, own ? "Add a goal of yours" : "Add a group goal (everyone must do it)"), input,
         h("div", { style: "display:flex;gap:8px" }, cadenceSelect(id + "Cad", null, (v) => { cad = v; }, "How often for the new goal"),
@@ -1173,7 +1182,7 @@ function openSettings(id) {
       mineLocked ? null : h("p", { class: "seg-note", style: "margin:-4px 2px 10px" }, `Anything that's a real challenge for you: fitness, reading, prayer, sleep. Up to ${L.MAX_PERSONAL}. They lock when it starts.`),
       mineLocked ? (() => { const l = h("div", { class: "lockline" }); l.innerHTML = SVG.lock; l.append("Your goals are locked, because they're scored. Ask the owner in Trash Talk if one needs to change."); return l; })() : null,
       own.length ? h("div", { style: "display:grid;gap:10px;margin-bottom:12px" }, own.map((g) => goalEditor(g, true)))
-        : h("p", { class: "empty", style: "margin-bottom:12px" }, h("b", {}, "No goals yet. "), "With none, every day counts as a strike."),
+        : h("p", { class: "empty", style: "margin-bottom:12px" }, h("b", {}, "No goals yet. "), "Ideas: read a chapter, pray 15 minutes, practice guitar, call your mom, no phone after 10, lift, 10k steps. With none, every day counts as a strike."),
       mineLocked ? null : adder("addGoal", true),
       group.length || owner ? h("h3", { class: "gsec" }, "Group goals") : null,
       group.length || owner ? h("p", { class: "seg-note", style: "margin:-4px 2px 10px" }, owner ? "Optional. A group goal lands on everyone's list and everyone has to do it." : "Set by the owner. Everyone has to do these.") : null,
@@ -1283,7 +1292,7 @@ function rulesFor(ch) {
       offs.length ? `Days off: ${offs.map((d) => fmtDay(d, { month: "short", day: "numeric" })).join(", ")}. Nothing counts on them.` : null,
     ]),
     sec("The goals", [
-      `Everyone sets their own goals before it starts, at least ${L.minGoalsOn(Object.assign({ playerGoals: {} }, ch))}. Anything counts: fitness, reading, prayer, sleep. Each one is every day or N days a week (weeks run Monday to Sunday).`,
+      `Everyone sets their own goals before it starts, at least ${L.minGoalsOn(Object.assign({ playerGoals: {} }, ch))}. Anything counts: fitness, reading, prayer, sleep. Each one is every day or N days a week. Weeks run from the start day, and a short last week asks for its share.`,
       "The goal check: the pack looks at each list and taps Fair or Too easy. A list needs a yes from more than half of the others. Change a goal and its votes reset. Not approved by the start? The owner decides.",
       "Your goals lock when it starts. After that only the owner can change them.",
       "A day with fewer goals than the minimum counts as a strike, so nobody can play it safe with one easy goal.",
@@ -1328,7 +1337,7 @@ function openHelp(open = null) {
     q("goals", "Who sets the goals?", p("You do. Before it starts, add your own under Edit goals: anything that's a real challenge for you, fitness or not. Read a chapter counts. The owner can add group goals that land on everyone's list too.")),
     q("goalcheck", "What's the goal check?", p("Before the start, the pack looks at each list and taps Fair or Too easy. A list needs a yes from more than half of the others, or the owner's OK. Change a goal and its votes reset. Each list needs a minimum number of goals; a day with fewer counts as a strike.")),
     q("target", "What's “your target”?", p("On a group goal, your own number, like 180 g of protein. Set it under Edit goals. Your own goals don't need one: the goal is the target.")),
-    q("weekly", "How do weekly goals work?", p("Some goals are “N days a week” instead of every day. Weeks run Monday to Sunday. The bar shows how close you are.")),
+    q("weekly", "How do weekly goals work?", p("Some goals are “N days a week” instead of every day. Weeks run from the challenge's start day (a Saturday start means Saturday to Friday). A short last week asks for its share. The bar shows how close you are.")),
     q("strike", "What's a strike?", p("A day you didn't finish every daily goal, or a weekly goal you came up short on when the week ends. A day only counts once it locks at noon the next day. Days off never count.")),
     q("pot", "How does the pot work?", p("Everyone pays the buy-in up front to the treasurer (the pot shows who and how). Only the treasurer marks who paid. Too many strikes and you're out. Whoever is still in at the end splits it. If nobody makes it, everyone gets their money back.")),
     q("comeback", "I'm out. Now what?", p("Keep going. If the challenge has a comeback, finish without another strike and you get that amount back. You can't win the pot that way, but it cuts your loss.")),
@@ -1399,6 +1408,28 @@ function minGoalsField(ch) {
     h("p", { class: "seg-note" }, "Everyone sets their own goals. A day with fewer than this counts as a strike, so nobody can play it safe with one easy goal."));
 }
 
+// Owner only: the snapshots. Download one as a file. If something ever breaks, Leo rebuilds from it with Jason;
+// there is deliberately no restore button (GPT review: a one-tap restore can't be made safe for votes and players).
+function backupsField() {
+  const b = state.backups;
+  const ids = Object.keys(b || {}).sort((x, y) => (b[y].at || 0) - (b[x].at || 0));
+  const when = (ms) => new Date(ms).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const download = (id) => {
+    const blob = new Blob([JSON.stringify(b[id], null, 2)], { type: "application/json" });
+    const a = h("a", { href: URL.createObjectURL(blob), download: `alpha-pack-backup-${id}.json` });
+    document.body.append(a); a.click(); a.remove();
+  };
+  return h("div", { class: "field" }, h("label", {}, "Backups"),
+    h("p", { class: "seg-note", style: "margin-top:0" }, `A full copy of everything (challenges, goals, ticks, votes, payments, the group list), taken every 6 hours when you open the app. The last ${L.BACKUP_KEEP} are kept. Only you can see them. If something ever breaks, download the latest good one and send it to Leo.`),
+    b == null ? h("p", { class: "seg-note" }, "Loading backups…")
+      : ids.length ? h("ul", { class: "backups" }, ids.map((id) => h("li", {},
+        h("span", {}, when(b[id].at), h("small", {}, ` · ${Object.keys(b[id].challenges || {}).length} challenge(s), ${Object.keys(b[id].players || {}).length} players`)),
+        h("span", { class: "pd-act" },
+          h("button", { class: "mini-btn", type: "button", style: "min-height:44px", onclick: () => download(id) }, "Download")))))
+      : h("p", { class: "seg-note" }, "No snapshots yet."),
+    h("button", { class: "mini-btn", type: "button", style: "min-height:44px", onclick: async () => { const id = await autoBackup(true, "manual"); toast(id ? "Snapshot saved." : "That didn't save."); } }, "Back up now"));
+}
+
 // Owner only: house rules. Words only; the app never scores them.
 function houseRulesField(ch) {
   const ta = h("textarea", { id: "houseRules", rows: "5", maxlength: String(L.MAX_RULES), autocomplete: "off", placeholder: "e.g. Cheat meals need a photo in Trash Talk…", "aria-label": "House rules" });
@@ -1446,11 +1477,38 @@ function subscribe() {
       render();
       if (state._sheetIs === "settings") state._sheetRebuild?.();
       postDueResults();
+      autoBackup();
     }, (e) => { console.error(e); toast("Lost the connection. It'll catch up when you're back online."); }));
   }
+  subscribeBackups();
 }
 
-function unsubscribe() { state.unsubs.forEach((u) => u && u()); state.unsubs = []; state.players = state.challenges = state.results = state.members = null; state.chat = {}; }
+// The owner also watches backups (members can't read them, so only the owner subscribes).
+function subscribeBackups() {
+  if (!state.ms?.owner || state._backupsUnsub) return;
+  state._backupsUnsub = state.backend.watch("backups", (data) => { state.backups = data; autoBackup(); if (state._sheetIs === "settings") state._sheetRebuild?.(); },
+    (e) => { console.error(e); state.backups = null; });
+}
+// Every 6 hours of the owner using the app: one snapshot of every challenge, every player's ticks and name, and the
+// group list. Keeps the newest BACKUP_KEEP.
+async function autoBackup(force, label) {
+  if (!state.ms?.owner || !state.backups || !state.players || !state.challenges || !state.members || state._backingUp) return null;
+  const plan = L.backupPlan(state.backups, now());
+  if (!plan.due && !force) return null;
+  state._backingUp = true;
+  try {
+    const id = new Date(now()).toISOString().replace(/[:.]/g, "-") + (label ? "-" + label : "");
+    await state.backend.createBackup(id, L.snapshotOf(state.challenges, state.players, state.members, now()));
+    for (const old of plan.prune) await state.backend.deleteBackup(old).catch(() => {});
+    return id;
+  } catch (e) {
+    console.error(e);
+    if (!state._backupWarned) { state._backupWarned = true; toast("Heads up: today's backup didn't save. Tell Leo."); }
+    return null;
+  } finally { state._backingUp = false; }
+}
+
+function unsubscribe() { state._backupsUnsub?.(); state._backupsUnsub = null; state.backups = null; state.unsubs.forEach((u) => u && u()); state.unsubs = []; state.players = state.challenges = state.results = state.members = null; state.chat = {}; }
 
 // Roll the day (and the noon close) without a reload.
 setInterval(() => {
@@ -1462,7 +1520,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden && st
 async function boot() {
   const params = new URLSearchParams(location.search);
   // The dev preview site (config sets DD_DEV, no Firebase) always runs on sample data: real data can't be touched.
-  const demo = params.get("demo") || (window.DD_DEV ? "active" : null);
+  const demo = params.get("demo") || (window.DD_DEV ? "season1" : null);
   try {
     if (demo) {
       const { createDemoBackend } = await import("./backend-demo.js");

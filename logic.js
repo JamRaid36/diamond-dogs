@@ -9,7 +9,7 @@
  *                          strikes, the survivors split it; settled = the owner froze the payouts
  *                     houseRules: text   owner's free-text rules, shown on the Rules page, never scored
  *                     skips: {<YYYY-MM-DD>: bool}   days off: nothing counts, streaks jump them, weekly targets drop a day
- *                     perWeek null = a daily goal (every day counts); 1-7 = "N days a week", weeks run Mon-Sun.
+ *                     perWeek null = a daily goal (every day counts); 1-7 = "N days a week", weeks run from the start day.
  *   players/<uid>    {name, joinedAt, targets: {<goalId>: text}, days: {<YYYY-MM-DD>: {<goalId>: bool}},
  *                     appeals: {<strikeKey>: bool}, votes: {<strikeKey>: bool}}   pardons: see pardonFor
  *   results/<date>   {date, challengeId, rows: [{uid, name, hit, of, pct, perfect}], createdAt}   (create-only)
@@ -221,16 +221,36 @@
   // Weekly goals that need at least one day this week (days off can waive a goal for the week).
   function weeklyGoals(ch, date) { return activeGoals(ch, date).filter(function (g) { return isWeekly(g) && weekProgress(null, ch, g, date).need > 0; }); }
 
-  // Monday of the week holding `date` (weeks run Mon-Sun).
-  function weekStart(date) {
+  // Challenges run in whole weeks (Jason 2026-10-29; prior art: DietBet's 4-week / 28-day game): the last day is
+  // start + 7*weeks - 1, so every week is a full 7 days and only late joiners and days off get scaled.
+  function endForWeeks(start, weeks) { return addDays(start, 7 * weeks - 1); }
+  function weeksOf(ch) { return ch && isDate(ch.start) && isDate(ch.end) ? (daysBetween(ch.start, ch.end) + 1) / 7 : 0; }
+
+  // First day of the challenge week holding `date`. Weeks run from the challenge's own start day (Jason 2026-10-29:
+  // start and finish whenever we want), so a Saturday start means Saturday-to-Friday weeks. Without a challenge,
+  // Monday (only old callers).
+  function weekStart(date, ch) {
+    if (ch && isDate(ch.start)) {
+      var k = daysBetween(ch.start, date);
+      return addDays(date, -(((k % 7) + 7) % 7));
+    }
     var p = date.split("-").map(Number);
     var dow = new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay(); // 0 Sun .. 6 Sat
     return addDays(date, -((dow + 6) % 7));
   }
 
+  // What a weekly goal asks for in one week. Each day off takes one off the target; then a short week (the last one,
+  // or a late joiner's first) is scaled to its length, rounded up: 2 days of a 7-day week of "Lift 2x" asks 1. Never
+  // more days than they actually had.
+  function weekNeed(perWeek, off, counted) {
+    var base = perWeek - off, room = 7 - off;
+    if (base <= 0 || room <= 0 || counted <= 0) return 0;
+    return Math.min(counted, Math.ceil(base * counted / room - 1e-9));
+  }
+
   // Progress on one weekly goal in the week holding `date`, counting ticks up to `date`.
   function weekProgress(player, ch, goal, date) {
-    var start = weekStart(date);
+    var start = weekStart(date, ch);
     var done = 0, counted = 0, off = 0;
     for (var d = start; d <= addDays(start, 6); d = addDays(d, 1)) {
       if (isSkip(ch, d) && inChallenge(ch, d)) { off++; continue; }
@@ -239,8 +259,7 @@
       counted++;
       if (d <= date && isDone(player, d, goal.id)) done++;
     }
-    var need = Math.min(goal.perWeek - off, counted); // each day off takes one off; a short week can't need more days than it has
-    if (need < 0) need = 0;
+    var need = weekNeed(goal.perWeek, off, counted);
     return { done: done, need: need, met: need > 0 && done >= need, weekStart: start };
   }
 
@@ -255,13 +274,13 @@
   function weekStreak(player, ch, goalId, today) {
     var goal = goalList(ch).filter(function (g) { return g.id === goalId; })[0];
     if (!goal) return 0;
-    var wk = weekStart(today);
+    var wk = weekStart(today, ch);
     var cur = weekProgress(player, ch, goal, today);
     var n = 0;
     if (cur.met) n++;
-    for (var d = addDays(wk, -1); inChallenge(ch, d); d = addDays(weekStart(d), -1)) {
-      var pr = weekProgress(player, ch, goal, addDays(weekStart(d), 6));
-      if (pr.need === 0 && skipDates(ch).some(function (x) { return weekStart(x) === pr.weekStart; })) continue; // a week off: jump it
+    for (var d = addDays(wk, -1); inChallenge(ch, d); d = addDays(weekStart(d, ch), -1)) {
+      var pr = weekProgress(player, ch, goal, addDays(weekStart(d, ch), 6));
+      if (pr.need === 0 && skipDates(ch).some(function (x) { return weekStart(x, ch) === pr.weekStart; })) continue; // a week off: jump it
       if (!pr.met) break;
       n++;
     }
@@ -524,6 +543,22 @@
     return { patch: patch };
   }
 
+  // ---------- backups: the owner's phone keeps snapshots of everything that matters ----------
+  var BACKUP_EVERY_MS = 6 * 3600 * 1000, BACKUP_KEEP = 14;
+  // Everything, verbatim: every challenge doc, every player doc (ticks, name, join time, targets, votes, pardon asks),
+  // and the group list. Rebuilding from one of these is a guided job (Leo + Jason), not a button: GPT r1 showed a
+  // one-tap restore can't put votes, deleted players or newer ticks back safely.
+  function snapshotOf(challenges, players, members, nowMs) {
+    return { at: nowMs, challenges: JSON.parse(JSON.stringify(challenges || {})), players: JSON.parse(JSON.stringify(players || {})),
+      members: JSON.parse(JSON.stringify((members && members.emails) || [])) };
+  }
+  // Due when the newest snapshot is older than BACKUP_EVERY_MS. Old ones past BACKUP_KEEP get pruned, oldest first.
+  function backupPlan(backups, nowMs) {
+    var ids = Object.keys(backups || {}).sort(function (a, b) { return (backups[b].at || 0) - (backups[a].at || 0); });
+    var newest = ids.length ? backups[ids[0]].at || 0 : 0;
+    return { due: !ids.length || nowMs - newest >= BACKUP_EVERY_MS, prune: ids.slice(BACKUP_KEEP - 1) };
+  }
+
   // ---------- pack points: group goals score the group together ----------
   // A daily group goal earns the pack 1 point for each locked day EVERYONE on the record did it; a weekly one, 1 point
   // for each locked week everyone met it. Computed from the ticks, nothing to enter. Days off and pre-join days are
@@ -549,7 +584,7 @@
           else if (d === today || !current) current = { label: d === today ? "today" : "yesterday", done: who.length - missing.length, of: who.length, behind: missing.map(function (u) { return { uid: u, name: name(u), left: 1 }; }) };
         }
       } else {
-        for (var ws = weekStart(ch.start); ws <= ch.end && ws <= today; ws = addDays(ws, 7)) {
+        for (var ws = ch.start; ws <= ch.end && ws <= today; ws = addDays(ws, 7)) {
           var last = addDays(ws, 6) < ch.end ? addDays(ws, 6) : ch.end;
           var rows = entrants.map(function (u) { return { u: u, pr: weekProgress(players[u], chFor(ch, u), g, last < today ? last : today) }; })
             .filter(function (r) { return r.pr.need > 0; });
@@ -587,7 +622,7 @@
     }
     // Weekly goals are judged on the player's own record: only days they were in, and the target can't
     // exceed the days the goal was active for them. Each day off in the week takes one off the target.
-    for (var ws = weekStart(ch.start); ws <= ch.end; ws = addDays(ws, 7)) {
+    for (var ws = ch.start; ws <= ch.end; ws = addDays(ws, 7)) {
       var last = addDays(ws, 6) < ch.end ? addDays(ws, 6) : ch.end;
       if (!isFinal(last, nowMs, ch)) continue;
       var off = 0, tally = Object.create(null); // keyed by goal id: no inherited names ("constructor")
@@ -602,7 +637,7 @@
       }
       Object.keys(tally).forEach(function (id) {
         var t = tally[id];
-        var need = Math.min(t.g.perWeek - off, t.days);
+        var need = weekNeed(t.g.perWeek, off, t.days);
         if (need > 0 && t.done < need) out.push({ kind: "week", date: last, goalId: id });
       });
     }
@@ -868,7 +903,7 @@
     inChallenge: inChallenge, goalList: goalList, activeGoals: activeGoals, isLocked: isLocked, isDone: isDone,
     dayScore: dayScore, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
     strikesFor: strikesFor, potStatus: potStatus, potPatch: potPatch, paidPatch: paidPatch,
-    groupScore: groupScore, chFor: chFor, ownView: ownView, ownPatch: ownPatch, ownGoals: ownGoals, MAX_PERSONAL: MAX_PERSONAL, ownGoalsWithout: ownGoalsWithout, canAddOwn: canAddOwn,
+    groupScore: groupScore, snapshotOf: snapshotOf, backupPlan: backupPlan, BACKUP_KEEP: BACKUP_KEEP, endForWeeks: endForWeeks, weeksOf: weeksOf, chFor: chFor, ownView: ownView, ownPatch: ownPatch, ownGoals: ownGoals, MAX_PERSONAL: MAX_PERSONAL, ownGoalsWithout: ownGoalsWithout, canAddOwn: canAddOwn,
     minGoalsOn: minGoalsOn, goalSetKey: goalSetKey, signoffFor: signoffFor, signoffVotePatch: signoffVotePatch, ownerSignoffPatch: ownerSignoffPatch, minGoalsPatch: minGoalsPatch,
     strikeKey: strikeKey, appealPatch: appealPatch, votePatch: votePatch, houseRulesPatch: houseRulesPatch, MAX_RULES: MAX_RULES, treasurerPatch: treasurerPatch, treasurerOf: treasurerOf, MAX_PAYHOW: MAX_PAYHOW, paidOf: paidOf, ownerPaidPatch: ownerPaidPatch, settlePatch: settlePatch, unsettlePatch: unsettlePatch,
     isSkip: isSkip, skipDates: skipDates, skipPatch: skipPatch, renamePatch: renamePatch, endPlan: endPlan, handoffPlan: handoffPlan,
@@ -876,7 +911,7 @@
     resultsDue: resultsDue, resultId: resultId, buildResult: buildResult, joinedBy: joinedBy,
     currentChallenge: currentChallenge, cleanText: cleanText, validateChallenge: validateChallenge,
     addGoalPatch: addGoalPatch, cadencePatch: cadencePatch, cadenceLabel: cadenceLabel, isWeekly: isWeekly,
-    dailyGoals: dailyGoals, weeklyGoals: weeklyGoals, weekStart: weekStart, weekProgress: weekProgress,
+    dailyGoals: dailyGoals, weeklyGoals: weeklyGoals, weekStart: weekStart, weekNeed: weekNeed, weekProgress: weekProgress,
     weekScore: weekScore, weekStreak: weekStreak, closeGoalPatch: closeGoalPatch, editGoalPatch: editGoalPatch, tickPatch: tickPatch,
     gridDates: gridDates, dayNumber: dayNumber, challengeLength: challengeLength
   };
