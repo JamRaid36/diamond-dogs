@@ -2,7 +2,9 @@
  * Loaded as a classic script in the page (window.DDLogic) and required by the node test suite.
  * Data shapes (Firestore):
  *   challenges/<id>  {name, start, end, createdBy, createdAt,
- *                     goals: {<goalId>: {text, addedOn, closedOn|null, order, perWeek|null}}}
+ *                     goals: {<goalId>: {text, addedOn, closedOn|null, order, perWeek|null}}   group goals: everyone's
+ *                     playerGoals: {<uid>: {<goalId>: {same shape}}}   each player's own goals (the default)
+ *                     minGoals: 1-8 (default 3)   goalsOk: {<uid>: <goal-set key>}   the owner's sign-off on a list
  *                     pot: {buyIn, strikes, comeback, paid: {<uid>: bool}, settled: {at, rows}|null}   play money: misses are
  *                          strikes, the survivors split it; settled = the owner froze the payouts
  *                     houseRules: text   owner's free-text rules, shown on the Rules page, never scored
@@ -74,6 +76,7 @@
     return {
       id: id, text: typeof v.text === "string" && v.text ? v.text.slice(0, MAX_TEXT) : "Goal", addedOn: v.addedOn,
       closedOn: isDate(v.closedOn) ? v.closedOn : null, order: typeof v.order === "number" && isFinite(v.order) ? v.order : 0, perWeek: pw,
+      personal: v.personal === true,
     };
   }
 
@@ -83,6 +86,94 @@
     return Object.keys(g)
       .map(function (id) { return cleanGoal(id, g[id]); }).filter(Boolean)
       .sort(function (a, b) { return (a.order || 0) - (b.order || 0) || (a.addedOn < b.addedOn ? -1 : 1); });
+  }
+
+  // One player's view of a challenge: the group goals plus their own. Every scoring function takes a challenge, so
+  // scoring a player always goes through chFor(ch, uid). Own goals sort after the group's.
+  var MAX_PERSONAL = 8;
+  function ownGoals(ch, uid) {
+    var all = (ch && ch.playerGoals) || {};
+    var mine = typeof all === "object" && Object.prototype.hasOwnProperty.call(all, uid) ? all[uid] : null;
+    return mine && typeof mine === "object" ? mine : {};
+  }
+  function chFor(ch, uid) {
+    if (!ch) return ch;
+    var goals = Object.create(null), shared = (ch.goals && typeof ch.goals === "object") ? ch.goals : {}, mine = ownGoals(ch, uid);
+    Object.keys(shared).forEach(function (id) { goals[id] = shared[id]; });
+    Object.keys(mine).forEach(function (id) {
+      var g = mine[id];
+      if (!badId(id) && g && typeof g === "object" && !(id in goals)) goals[id] = Object.assign({}, g, { personal: true, order: 1000 + (typeof g.order === "number" && isFinite(g.order) ? g.order : 0) });
+    });
+    return Object.assign({}, ch, { goals: goals });
+  }
+  // Only this player's own goals, as a challenge-shaped view, for building patches to them.
+  function ownView(ch, uid) { return Object.assign({}, ch, { goals: ownGoals(ch, uid) }); }
+  // Before the start, removing one of your goals deletes it outright (the rules cap your map at MAX_PERSONAL entries).
+  // Returns the whole new map for playerGoals[uid]; the backend writes it as a replacement, not a merge.
+  function ownGoalsWithout(ch, uid, goalId) {
+    var out = {}, mine = ownGoals(ch, uid);
+    Object.keys(mine).forEach(function (id) { if (id !== goalId) out[id] = mine[id]; });
+    return out;
+  }
+  function canAddOwn(ch, uid) { return Object.keys(ownGoals(ch, uid)).length < MAX_PERSONAL; }
+  // A goal patch ({goals: {...}}) re-aimed at one player's own goals.
+  function ownPatch(uid, r) {
+    if (!r || r.error) return r;
+    var pg = {}; pg[uid] = r.patch.goals;
+    var out = Object.assign({}, r.patch); delete out.goals; out.playerGoals = pg;
+    return { patch: out };
+  }
+
+  // The fewest goals a player may have on any day. Set only by the owner's minGoals (new challenges get 3); without it
+  // the minimum is 1, so nothing a member writes (an empty playerGoals map, say) can change it.
+  function minGoalsOn(ch) {
+    var n = ch && typeof ch.minGoals === "number" ? Math.round(ch.minGoals) : 1;
+    return n >= 1 && n <= MAX_PERSONAL ? n : 1;
+  }
+
+  // A player's own goal list as one key: change any goal (text or cadence), add or remove one, and the key changes,
+  // so sign-off votes on the old list stop counting. Removed-before-start goals aren't part of the list.
+  function goalSetKey(ch, uid) {
+    // Canonical: every field that changes what's scored (id, text, cadence, when it counts), sorted by id, as JSON.
+    var list = goalList(ownView(ch, uid)).map(function (g) { return [g.id, g.text, g.perWeek || 0, g.addedOn, g.closedOn || ""]; })
+      .sort(function (a, b) { return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0; });
+    var str = JSON.stringify(list);
+    // cyrb53: a 53-bit string hash, so two different lists colliding is out of reach for a group of friends.
+    var h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (var i = 0; i < str.length; i++) {
+      var c = str.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+  }
+
+  // Sign-off on a player's goal list: more than half of the OTHER entrants vote yes on its current key, or the owner
+  // approves it (goalsOk[uid] === key). Votes ride the same players/<voter>.votes map as pardons.
+  function signoffKey(ch, uid) { return [ch.id, uid, "goals", goalSetKey(ch, uid)].join("|"); }
+  function signoffFor(players, ch, uid) {
+    players = players || {};
+    var entrants = Object.keys(players).filter(function (u) { return joinedBy(players[u], ch.end); });
+    var key = signoffKey(ch, uid);
+    // What counts on day 1, group goals plus their own. Not activeGoals: a day off on day 1 would make that zero.
+    var count = goalList(chFor(ch, uid)).filter(function (g) { return g.addedOn <= ch.start && (!g.closedOn || ch.start < g.closedOn); }).length;
+    var min = minGoalsOn(ch);
+    var p = pardonFor(players, entrants, uid, key); // asked is irrelevant here: a list is always up for sign-off
+    var byOwner = !!(ch.goalsOk && ch.goalsOk[uid] === goalSetKey(ch, uid));
+    var enough = count >= min;
+    return { key: key, setKey: goalSetKey(ch, uid), count: count, min: min, enough: enough, yes: p.yes, no: p.no, need: p.need, voters: p.voters,
+      byOwner: byOwner, approved: enough && (byOwner || (p.voters > 0 && p.yes >= p.need)) };
+  }
+  function signoffVotePatch(key, yes) { return votePatch(key, yes); }
+  function ownerSignoffPatch(ch, uid, on) {
+    var m = {}; m[uid] = on ? goalSetKey(ch, uid) : null;
+    return { patch: { goalsOk: m } };
+  }
+  function minGoalsPatch(n) {
+    var k = Math.round(Number(n));
+    if (!(k >= 1 && k <= MAX_PERSONAL)) return { error: "Minimum: 1 to " + MAX_PERSONAL + " goals." };
+    return { patch: { minGoals: k } };
   }
 
   // A day off: the owner switched it off for everyone. Ticks on it are kept but nothing counts.
@@ -284,8 +375,9 @@
   function buildResult(players, ch, date, nowMs) {
     var rows = Object.keys(players || {}).map(function (uid) {
       var p = players[uid];
-      var s = dayScore(p, ch, date);
-      var w = weekScore(p, ch, date);
+      var pc = chFor(ch, uid);
+      var s = dayScore(p, pc, date);
+      var w = weekScore(p, pc, date);
       return { uid: uid, name: (p && p.name) || "Player", hit: s.hit, of: s.of, pct: s.pct, perfect: s.perfect, wkMet: w.met, wkOf: w.of };
     }).filter(function (r) { return joinedBy(players[r.uid], date); });
     rows.sort(function (a, b) { return b.pct - a.pct || b.hit - a.hit || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0); });
@@ -339,7 +431,6 @@
     if (!isDate(input.end)) errors.end = "Pick an end date.";
     else if (isDate(input.start) && input.end < input.start) errors.end = "End on or after the start date.";
     else if (isDate(input.start) && daysBetween(input.start, input.end) > 365) errors.end = "Keep it to a year or less.";
-    if (!goals.length) errors.goals = "Add at least one goal.";
     if (goals.length > MAX_GOALS) errors.goals = "Twelve goals at most.";
     var ok = Object.keys(errors).length === 0;
     var value = null;
@@ -409,9 +500,7 @@
     if (!isDate(newStart)) return { error: "Pick a date." };
     if (newStart >= ch.start) return { error: "Pick a day before the current start." };
     if (newStart < addDays(pacificDate(ch.createdAt), -MAX_BACKDATE)) return { error: "Start today or later." };
-    var goals = {};
-    goalList(ch).forEach(function (g) { if (g.addedOn === ch.start) goals[g.id] = { addedOn: newStart }; });
-    return { patch: { start: newStart, goals: goals } };
+    return datesPatch(ch, newStart, ch.end); // one code path: group and own goals move together, no empty-map writes
   }
 
   // Owner only: change start and/or end any time. Goals that began on the old start move with it.
@@ -423,6 +512,15 @@
     var goals = {};
     if (start !== ch.start) goalList(ch).forEach(function (g) { if (g.addedOn === ch.start || g.addedOn < start) goals[g.id] = { addedOn: start }; });
     if (Object.keys(goals).length) patch.goals = goals; // an empty map would REPLACE the goals in Firestore
+    if (start !== ch.start) {
+      var pg = {};
+      Object.keys((ch && ch.playerGoals) || {}).forEach(function (uid) {
+        var mine = {};
+        goalList(ownView(ch, uid)).forEach(function (g) { if (g.addedOn === ch.start || g.addedOn < start) mine[g.id] = { addedOn: start }; });
+        if (Object.keys(mine).length) pg[uid] = mine;
+      });
+      if (Object.keys(pg).length) patch.playerGoals = pg;
+    }
     return { patch: patch };
   }
 
@@ -440,7 +538,11 @@
     var out = [];
     if (!ch || !isDate(ch.start) || !isDate(ch.end)) return out;
     for (var d = ch.start; d <= ch.end && isFinal(d, nowMs, ch); d = addDays(d, 1)) {
-      if (!onRecord(player, ch, d) || isSkip(ch, d) || !dailyGoals(ch, d).length) continue;
+      if (!onRecord(player, ch, d) || isSkip(ch, d)) continue;
+      // Fewer goals than the minimum that day is a strike: otherwise setting none (or one) would make a player
+      // strike-proof. The minimum only bites when each player sets their own; group-only challenges count as met.
+      if (activeGoals(ch, d).length < minGoalsOn(ch)) { out.push({ kind: "day", date: d, nogoal: true }); continue; }
+      if (!dailyGoals(ch, d).length) continue; // weekly-only that day: judged by the week
       if (!dayScore(player, ch, d).perfect) out.push({ kind: "day", date: d });
     }
     // Weekly goals are judged on the player's own record: only days they were in, and the target can't
@@ -505,7 +607,7 @@
     // Entrants: everyone on the board who joined by the last day. Joining after it's over doesn't buy a share.
     var entrants = Object.keys(players).filter(function (uid) { return joinedBy(players[uid], ch.end); });
     var rows = entrants.map(function (uid) {
-      var list = strikesFor(players[uid], ch, nowMs).map(function (s) {
+      var list = strikesFor(players[uid], chFor(ch, uid), nowMs).map(function (s) {
         return Object.assign({}, s, { pardon: pardonFor(players, entrants, uid, strikeKey(ch.id, uid, s)) });
       }).sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
       var n = list.filter(function (s) { return !s.pardon.pardoned; }).length;
@@ -637,6 +739,7 @@
   function orphanGoals(players, ch, all) {
     var known = Object.assign({}, (ch && ch.goals) || {}); // ids of every challenge: another challenge's goals aren't missing
     (all || []).forEach(function (c) { Object.assign(known, c.goals || {}); });
+    [ch].concat(all || []).forEach(function (c) { var pg = (c && c.playerGoals) || {}; Object.keys(pg).forEach(function (u) { Object.assign(known, pg[u] || {}); }); });
     var found = Object.create(null);
     Object.keys(players || {}).forEach(function (uid) {
       var days = (players[uid] && players[uid].days) || {};
@@ -708,6 +811,8 @@
     inChallenge: inChallenge, goalList: goalList, activeGoals: activeGoals, isLocked: isLocked, isDone: isDone,
     dayScore: dayScore, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
     strikesFor: strikesFor, potStatus: potStatus, potPatch: potPatch, paidPatch: paidPatch,
+    chFor: chFor, ownView: ownView, ownPatch: ownPatch, ownGoals: ownGoals, MAX_PERSONAL: MAX_PERSONAL, ownGoalsWithout: ownGoalsWithout, canAddOwn: canAddOwn,
+    minGoalsOn: minGoalsOn, goalSetKey: goalSetKey, signoffFor: signoffFor, signoffVotePatch: signoffVotePatch, ownerSignoffPatch: ownerSignoffPatch, minGoalsPatch: minGoalsPatch,
     strikeKey: strikeKey, appealPatch: appealPatch, votePatch: votePatch, houseRulesPatch: houseRulesPatch, MAX_RULES: MAX_RULES, settlePatch: settlePatch, unsettlePatch: unsettlePatch,
     isSkip: isSkip, skipDates: skipDates, skipPatch: skipPatch, renamePatch: renamePatch, endPlan: endPlan, handoffPlan: handoffPlan,
     catchUpOpen: catchUpOpen, pruneEmpty: pruneEmpty, orphanGoals: orphanGoals, recoverGoalsPatch: recoverGoalsPatch, ownerTickPatch: ownerTickPatch, datesPatch: datesPatch, canMoveStart: canMoveStart, moveStartPatch: moveStartPatch, catchUpClosesMs: catchUpClosesMs, editableDates: editableDates, MAX_BACKDATE: MAX_BACKDATE,

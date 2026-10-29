@@ -6,7 +6,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, getDoc, setDoc, addDoc,
-  onSnapshot, query, orderBy, limit, deleteDoc,
+  onSnapshot, query, orderBy, limit, deleteDoc, updateDoc, FieldPath,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 export function createFirebaseBackend(config) {
@@ -72,6 +72,8 @@ export function createFirebaseBackend(config) {
     async mergePlayer(uid, patch) { await setDoc(doc(db, "players", uid), patch, { merge: true }); },
     // pruneEmpty: a merge write with an empty map replaces the field; never send one to a challenge.
     async mergeChallenge(id, patch) { await setDoc(doc(db, "challenges", id), window.DDLogic.pruneEmpty(patch), { merge: true }); },
+    // Replace one player's own-goals map outright (a merge can't drop a key): removing a goal before the start.
+    async setOwnGoals(id, uid, goals) { await updateDoc(doc(db, "challenges", id), new FieldPath("playerGoals", uid), goals); },
     // Owner only (the rules refuse anyone else).
     async deleteChallenge(id) { await deleteDoc(doc(db, "challenges", id)); },
     async deletePlayer(uid) { await deleteDoc(doc(db, "players", uid)); },

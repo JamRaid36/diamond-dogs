@@ -69,7 +69,7 @@ function viewDate() {
 function packOrder(ch, date) {
   const ids = Object.keys(state.players || {}).filter((uid) => L.joinedBy(state.players[uid], date) || uid === state.user.uid);
   return ids.sort((a, b) => {
-    const sa = L.dayScore(state.players[a], ch, date), sb = L.dayScore(state.players[b], ch, date);
+    const sa = L.dayScore(state.players[a], L.chFor(ch, a), date), sb = L.dayScore(state.players[b], L.chFor(ch, b), date);
     return sb.pct - sa.pct || sb.hit - sa.hit || (state.players[a].name || "").localeCompare(state.players[b].name || "");
   });
 }
@@ -117,6 +117,7 @@ function renderInner() {
     quickLinks(),
     t < ch.start ? renderUpcoming(ch) : t > ch.end ? renderFinished(ch) : renderYou(ch),
     state.chId ? null : renderUpNext(ch),
+    t < ch.start ? renderSignoff(ch) : null,
     renderPot(ch),
     renderPack(ch),
     renderChat(),
@@ -216,6 +217,7 @@ function streakEl(n, label) {
 }
 
 function renderYou(ch) {
+  ch = L.chFor(ch, state.user.uid); // the group's goals plus mine
   const t = today();
   const date = viewDate();
   const p = me();
@@ -246,7 +248,7 @@ function renderYou(ch) {
     weekly.length ? h("div", { class: "wk-head" }, h("span", {}, "This week"), h("small", {}, `${wk.met} of ${wk.of} met · resets Monday`)) : null,
     weekly.length ? h("ul", { class: "goals" }, weekly.map((g) => goalRow(ch, p, g, date, t))) : null,
     off ? h("p", { class: "empty" }, h("b", {}, "Day off. "), "Nothing counts today, and every streak picks up where it left off.") :
-      !goals.length && !weekly.length ? h("p", { class: "empty" }, "No goals count today. Add one from the menu.") : null,
+      !goals.length && !weekly.length ? h("p", { class: "empty" }, h("b", {}, "You have no goals. "), "Add yours under Edit goals. With none, every day counts as a strike.") : null,
     h("div", { class: "you-foot" },
       h("span", { class: "foot-note" + (perfectStreak >= 3 ? " hot" : "") }, perfectStreak ? `${perfectStreak} perfect day${perfectStreak === 1 ? "" : "s"} in a row` : goals.length ? `Tick all ${goals.length} daily goals for a perfect day` : "Weekly goals only"),
       h("button", { class: "link-btn", type: "button", onclick: openSettings }, "Edit goals")));
@@ -309,13 +311,15 @@ async function tick(ch, date, goalId, done, btn) {
 }
 
 function renderUpcoming(ch) {
+  ch = L.chFor(ch, state.user.uid);
   const goals = L.goalList(ch).filter((g) => !g.closedOn);
   return h("section", { class: "you" },
     h("div", { class: "you-head" }, h("div", { class: "you-title" }, h("h1", {}, ch.name),
-      h("p", {}, `Starts ${fmtDay(ch.start, { weekday: "long", month: "short", day: "numeric" })}. Goals can still change until then.`))),
-    h("ul", { class: "goals" }, goals.map((g) => h("li", {}, h("div", { class: "goal", "aria-disabled": "true" },
-      h("span", { class: "box" }), h("span", { class: "goal-text" }, h("strong", {}, g.text), me().targets?.[g.id] ? h("small", {}, `Your target: ${me().targets[g.id]}`) : h("small", {}, "Set your own target in Goals & targets")))))),
-    h("div", { class: "you-foot" }, h("span", { class: "foot-note" }, "Set your own number for each goal"), h("button", { class: "link-btn", type: "button", onclick: openSettings }, "Edit goals")));
+      h("p", {}, `Starts ${fmtDay(ch.start, { weekday: "long", month: "short", day: "numeric" })}. Set your own goals before then. They lock when it starts.`))),
+    goals.length ? h("ul", { class: "goals" }, goals.map((g) => h("li", {}, h("div", { class: "goal", "aria-disabled": "true" },
+      h("span", { class: "box" }), h("span", { class: "goal-text" }, h("strong", {}, g.text), h("small", {}, [g.personal ? "Yours" : "Group goal", L.cadenceLabel(g), !g.personal && me().targets?.[g.id] ? `Your target: ${me().targets[g.id]}` : null].filter(Boolean).join(" · ")))))))
+      : h("p", { class: "empty" }, h("b", {}, "You haven't set any goals yet. "), "Anything counts: protein, a workout, read a chapter. With none, every day is a strike."),
+    h("div", { class: "you-foot" }, h("span", { class: "foot-note" }, (() => { const n = goals.filter((g) => g.personal).length; return n ? `${n} goal${n === 1 ? "" : "s"} of your own · up to ${L.MAX_PERSONAL}` : "No goals of your own yet"; })()), h("button", { class: "link-btn", type: "button", onclick: openSettings }, goals.length ? "Edit goals" : "Set your goals")));
 }
 
 function renderFinished(ch) {
@@ -324,7 +328,8 @@ function renderFinished(ch) {
   for (let d = ch.start; d <= ch.end; d = L.addDays(d, 1)) days.push(d);
   const totals = ids.map((uid) => {
     const p = state.players[uid];
-    const sc = days.map((d) => L.dayScore(p, ch, d)).filter((s) => s.of);
+    const pc = L.chFor(ch, uid);
+    const sc = days.map((d) => L.dayScore(p, pc, d)).filter((s) => s.of);
     const pct = sc.length ? Math.round(sc.reduce((a, s) => a + s.pct, 0) / sc.length) : 0;
     return { uid, name: p.name, pct, perfect: sc.filter((s) => s.perfect).length };
   }).sort((a, b) => b.pct - a.pct);
@@ -421,6 +426,54 @@ function renderPot(ch) {
       ])));
 }
 
+// Before the start: everyone's own goals, and a yes/no from the rest of the pack on each list. Keeps "one easy goal"
+// out: a list counts as approved once more than half of the others say yes (or the owner does). Edit a goal and the
+// votes on it reset, because the list they approved is gone.
+function renderSignoff(ch) {
+  const uid = state.user.uid;
+  const owner = !!state.ms?.owner;
+  const ids = Object.keys(state.players || {}).sort((a, b) => (a === uid ? -1 : b === uid ? 1 : (state.players[a].name || "").localeCompare(state.players[b].name || "")));
+  const myVotes = me()?.votes || {};
+  const rows = ids.map((pid) => {
+    const p = state.players[pid];
+    const so = L.signoffFor(state.players, ch, pid);
+    const goals = L.goalList(L.ownView(ch, pid)).filter((g) => !(g.closedOn && g.closedOn <= ch.start));
+    const isMe = pid === uid;
+    const status = !so.enough ? h("span", { class: "pd-state warn" }, `${so.count} of ${so.min} goals set`)
+      : so.approved ? h("span", { class: "pd-state ok" }, so.byOwner ? "✓ Approved by the owner" : `✓ Approved · ${so.yes} of ${so.need} yes`)
+      : h("span", { class: "pd-state" }, `Waiting · ${so.yes} of ${so.need} yes${so.no ? ` · ${so.no} no` : ""}`);
+    const v = myVotes[so.key];
+    const cast = (yes) => async () => {
+      try { await state.backend.mergePlayer(uid, L.signoffVotePatch(so.key, yes).patch); toast(yes ? `You approved ${p.name}'s goals.` : `You said no to ${p.name}'s goals. Tell him why in Trash Talk.`); }
+      catch (e) { console.error(e); toast("That didn't save."); }
+    };
+    const votes = isMe || !so.enough ? null : h("span", { class: "pd-act" },
+      h("button", { class: "mini-btn" + (v === true ? " on" : ""), type: "button", "aria-pressed": String(v === true), onclick: cast(true) }, "Fair"),
+      h("button", { class: "mini-btn" + (v === false ? " on-no" : ""), type: "button", "aria-pressed": String(v === false), onclick: cast(false) }, "Too easy"));
+    const ownerBtn = owner && so.enough && !so.byOwner ? h("button", { class: "link-btn", type: "button", onclick: async () => {
+      try { await state.backend.mergeChallenge(ch.id, L.ownerSignoffPatch(ch, pid, true).patch); toast(`Approved ${isMe ? "your" : p.name + "'s"} goals as the owner.`); } catch (e) { console.error(e); toast("That didn't save."); }
+    } }, "Approve as owner") : null;
+    return h("li", { class: so.approved ? "pardoned" : null },
+      h("div", { class: "pd-what" }, h("b", {}, isMe ? "Your goals" : `${p.name || "Player"}'s goals`),
+        goals.length ? h("ul", { class: "so-goals" }, goals.map((g) => h("li", {}, g.text, L.isWeekly(g) ? h("small", {}, ` · ${L.cadenceLabel(g)}`) : null)))
+          : h("small", {}, isMe ? "None yet. Add yours under Edit goals." : "None yet.")),
+      h("div", { class: "pd-act so-act" }, status, votes, ownerBtn, isMe ? h("button", { class: "mini-btn", type: "button", onclick: openSettings }, so.count ? "Edit goals" : "Set your goals") : null));
+  });
+  const so = L.signoffFor(state.players, ch, uid);
+  return h("section", { "aria-labelledby": "soH" },
+    h("div", { class: "sec-head" }, h("h2", { id: "soH" }, "Goal check"), h("span", { class: "note" }, `Before ${fmtDay(ch.start, { weekday: "long" })}`)),
+    h("div", { class: "pot so" },
+      h("p", { class: "so-lead" }, !so.enough ? h("b", {}, `Set at least ${so.min} goals. `) : so.approved ? h("b", {}, "Your goals are approved. ") : h("b", {}, "Your goals are waiting on the pack. "),
+        "Then tap Fair or Too easy on everyone else's list."),
+      h("ul", { class: "pd-block so-list" }, rows),
+      help("Why a goal check?", [
+        "Everyone picks their own goals, so someone could pick easy ones. The pack keeps it fair.",
+        `Each list needs at least ${so.min} goals. A day with fewer counts as a strike.`,
+        "Fair = the list is a real challenge for him. Too easy = it isn't. Say why in Trash Talk.",
+        "Not approved by the start? The owner decides.",
+      ])));
+}
+
 // Settling: the owner freezes the payouts once the last day locks. Before that, everyone sees it's pending.
 function settleBlock(ch, st) {
   const owner = !!state.ms?.owner;
@@ -491,42 +544,45 @@ function help(title, lines) {
     h("ul", {}, lines.filter(Boolean).map((l) => h("li", {}, l))));
 }
 
+// One player's dog tag. ch is that player's view (group goals plus their own); chAll is the challenge itself.
+function packTag(ch, chAll, uid, date, t) {
+  const p = state.players[uid];
+  const goals = L.dailyGoals(ch, date);
+  const weekly = L.weeklyGoals(ch, date);
+  const s = L.dayScore(p, ch, date);
+  const open = state.expanded.has(uid);
+  const isMe = uid === state.user.uid;
+  const ps = L.perfectStreak(p, ch, date);
+  const off = L.isSkip(ch, date);
+  const potRow = L.potStatus(state.players, chAll, now())?.rows.find((r) => r.uid === uid);
+  const detailId = "tagd-" + uid.replace(/[^a-zA-Z0-9_-]/g, "");
+  return h("article", { class: "tag" + (isMe ? " me" : "") },
+    h("button", { class: "tag-btn", type: "button", "aria-expanded": String(open), "aria-controls": detailId, onclick: () => { open ? state.expanded.delete(uid) : state.expanded.add(uid); render(); } },
+      h("div", { class: "tag-row" },
+        h("div", { class: "tag-name" }, h("b", {}, p.name || "Player"), h("span", {}, potRow?.out ? (potRow.comeback ? (isMe ? "You · on a comeback" : "On a comeback") : isMe ? "You · out of the pot" : "Out of the pot") : isMe ? "You" : off ? "Day off" : ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : s.hit ? `${s.of - s.hit} to go today` : "Nothing ticked yet today")),
+        h("div", { class: "tag-score" }, off ? "Off" : `${s.hit}/${s.of}`, h("small", {}, "today"))),
+      h("div", { class: "pips", "aria-hidden": "true" }, goals.map((g) => h("span", { class: "pip" + (L.isDone(p, date, g.id) ? " on" : "") })),
+        weekly.map((g) => { const pr = L.weekProgress(p, ch, g, date); return h("span", { class: "wbar" + (pr.met ? " met" : "") }, h("i", { style: `width:${pr.need ? Math.min(100, Math.round(pr.done / pr.need * 100)) : 0}%` })); }))),
+    open ? h("div", { class: "tag-detail", id: detailId }, goals.map((g) => {
+      const on = L.isDone(p, date, g.id);
+      const dot = h("span", { class: "dot" + (on ? " on" : "") });
+      if (on) dot.innerHTML = SVG.check;
+      return h("div", {}, dot, h("span", { class: "t" }, g.text, p.targets?.[g.id] ? h("small", {}, ` · ${p.targets[g.id]}`) : null),
+        streakEl(L.goalStreak(p, ch, g.id, date), "Days in a row"));
+    }), weekly.map((g) => {
+      const pr = L.weekProgress(p, ch, g, date);
+      const dot = h("span", { class: "dot" + (pr.met ? " on" : "") });
+      if (pr.met) dot.innerHTML = SVG.check;
+      return h("div", {}, dot, h("span", { class: "t" }, g.text, h("small", {}, ` · ${L.cadenceLabel(g)}${p.targets?.[g.id] ? " · " + p.targets[g.id] : ""}`)),
+        h("span", { class: "wk" + (pr.met ? " met" : "") }, `${pr.done}/${pr.need}`));
+    }), state.ms?.owner ? ownerEditor(ch, uid, p) : null) : null);
+}
+
 function renderPack(ch) {
   const t = today();
   const date = L.inChallenge(ch, t) ? t : t > ch.end ? ch.end : ch.start;
-  const goals = L.dailyGoals(ch, date);
-  const weekly = L.weeklyGoals(ch, date);
   const ids = packOrder(ch, date);
-  const tags = ids.map((uid) => {
-    const p = state.players[uid];
-    const s = L.dayScore(p, ch, date);
-    const open = state.expanded.has(uid);
-    const isMe = uid === state.user.uid;
-    const ps = L.perfectStreak(p, ch, date);
-    const off = L.isSkip(ch, date);
-    const potRow = L.potStatus(state.players, ch, now())?.rows.find((r) => r.uid === uid);
-    const detailId = "tagd-" + uid.replace(/[^a-zA-Z0-9_-]/g, "");
-    return h("article", { class: "tag" + (isMe ? " me" : "") },
-      h("button", { class: "tag-btn", type: "button", "aria-expanded": String(open), "aria-controls": detailId, onclick: () => { open ? state.expanded.delete(uid) : state.expanded.add(uid); render(); } },
-        h("div", { class: "tag-row" },
-          h("div", { class: "tag-name" }, h("b", {}, p.name || "Player"), h("span", {}, potRow?.out ? (potRow.comeback ? (isMe ? "You · on a comeback" : "On a comeback") : isMe ? "You · out of the pot" : "Out of the pot") : isMe ? "You" : off ? "Day off" : ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : s.hit ? `${s.of - s.hit} to go today` : "Nothing ticked yet today")),
-          h("div", { class: "tag-score" }, off ? "Off" : `${s.hit}/${s.of}`, h("small", {}, "today"))),
-        h("div", { class: "pips", "aria-hidden": "true" }, goals.map((g) => h("span", { class: "pip" + (L.isDone(p, date, g.id) ? " on" : "") })),
-          weekly.map((g) => { const pr = L.weekProgress(p, ch, g, date); return h("span", { class: "wbar" + (pr.met ? " met" : "") }, h("i", { style: `width:${pr.need ? Math.min(100, Math.round(pr.done / pr.need * 100)) : 0}%` })); }))),
-      open ? h("div", { class: "tag-detail", id: detailId }, goals.map((g) => {
-        const on = L.isDone(p, date, g.id);
-        const dot = h("span", { class: "dot" + (on ? " on" : "") });
-        if (on) dot.innerHTML = SVG.check;
-        return h("div", {}, dot, h("span", { class: "t" }, g.text, p.targets?.[g.id] ? h("small", {}, ` · ${p.targets[g.id]}`) : null),
-          streakEl(L.goalStreak(p, ch, g.id, date), "Days in a row"));
-      }), weekly.map((g) => {
-        const pr = L.weekProgress(p, ch, g, date);
-        const dot = h("span", { class: "dot" + (pr.met ? " on" : "") });
-        if (pr.met) dot.innerHTML = SVG.check;
-        return h("div", {}, dot, h("span", { class: "t" }, g.text, h("small", {}, ` · ${L.cadenceLabel(g)}${p.targets?.[g.id] ? " · " + p.targets[g.id] : ""}`)),
-          h("span", { class: "wk" + (pr.met ? " met" : "") }, `${pr.done}/${pr.need}`));
-      }), state.ms?.owner ? ownerEditor(ch, uid, p) : null) : null);
-  });
+  const tags = ids.map((uid) => packTag(L.chFor(ch, uid), ch, uid, date, t));
   return h("section", { "aria-labelledby": "packH" },
     h("div", { class: "sec-head" }, h("h2", { id: "packH" }, "The Pack"), h("span", { class: "note" }, "Tap a tag for details")),
     ids.length > 1 ? h("div", { class: "pack" }, tags) : h("div", { class: "pack" }, tags, h("p", { class: "empty" }, h("b", {}, "You're first here. "), "The others show up as soon as they sign in and pick a name.")));
@@ -544,7 +600,7 @@ function renderGrid(ch) {
     const p = state.players[uid];
     grid.append(h("span", { class: "who", role: "rowheader" }, p.name || "Player"));
     for (const d of dates) {
-      const s = L.dayScore(p, ch, d);
+      const s = L.dayScore(p, L.chFor(ch, uid), d);
       if (L.isSkip(ch, d)) { grid.append(h("span", { class: "cell off" + (d === t ? " today" : ""), role: "cell", title: `${fmtDay(d)}: day off`, "aria-label": `${p.name}, ${fmtDay(d)}: day off` })); continue; }
       const lvl = !s.of || !L.joinedBy(p, d) ? 0 : s.pct === 100 ? 4 : s.pct >= 67 ? 3 : s.pct >= 34 ? 2 : s.pct > 0 ? 1 : 0;
       grid.append(h("span", { class: `cell l${lvl}` + (d === t ? " today" : ""), role: "cell", title: `${p.name}, ${fmtDay(d)}: ${s.hit} of ${s.of}`, "aria-label": `${p.name}, ${fmtDay(d)}: ${s.hit} of ${s.of}` }));
@@ -691,6 +747,7 @@ function ownerControls(ch) {
     datesField(ch),
     daysOffField(ch),
     potField(ch),
+    minGoalsField(ch),
     houseRulesField(ch),
     end.error ? null : h("div", { class: "field" },
       h("button", { class: "mini-btn danger", type: "button", style: "min-height:44px", onclick: async () => {
@@ -812,7 +869,13 @@ function renderChat() {
 const sheet = $("#sheet");
 function openSheet(build) {
   const body = $("#sheetBody");
+  // The sheet rebuilds whenever shared data changes (someone else ticks, votes, saves). Half-typed text in a
+  // [data-keep] field survives that, and so does focus; otherwise other people's activity wipes what you're typing.
+  const kept = sheet.open ? [...body.querySelectorAll("[data-keep]")].filter((el) => el.id && el.value).map((el) => [el.id, el.value]) : [];
+  const focused = sheet.open && document.activeElement && body.contains(document.activeElement) ? document.activeElement.id : null;
   body.replaceChildren(h("div", { class: "grab", "aria-hidden": "true" }), ...build().filter(Boolean)); // builders return null for hidden parts
+  for (const [id, v] of kept) { const el = document.getElementById(id); if (el && !el.value) el.value = v; }
+  if (focused) document.getElementById(focused)?.focus({ preventScroll: true });
   if (!sheet.open) sheet.showModal();
 }
 sheet.addEventListener("click", (e) => { if (e.target === sheet) sheet.close(); });
@@ -825,7 +888,7 @@ function closeBtn() { return h("button", { class: "btn ghost", type: "button", o
 function openCreate() {
   const t = today();
   state._handoffFor = null;
-  const goals = [{ text: "", perWeek: null }, { text: "", perWeek: null }, { text: "", perWeek: null }];
+  const goals = []; // group goals are optional: by default everyone sets their own
   let errors = {};
   const build = () => {
     const name = h("input", { id: "chName", maxlength: "60", placeholder: "Fall Cut", value: state._draftName || "" });
@@ -833,18 +896,20 @@ function openCreate() {
     const end = h("input", { id: "chEnd", type: "date", value: state._draftEnd || L.addDays(t, 20), min: t });
     const list = h("ul", { class: "glist" }, goals.map((g, i) => h("li", { class: "gitem" }, h("span", { class: "n" }, String(i + 1)),
       h("div", { class: "gfields" },
-        h("input", { id: `chGoal${i}`, maxlength: "60", value: g.text, placeholder: ["Protein 200g", "Lift", "No sugar"][i] || "Another goal", "aria-label": `Goal ${i + 1}`, oninput: (e) => { goals[i].text = e.target.value; } }),
+        h("input", { id: `chGoal${i}`, maxlength: "60", value: g.text, autocomplete: "off", placeholder: "e.g. 8 hours of sleep…", "aria-label": `Group goal ${i + 1}`, oninput: (e) => { goals[i].text = e.target.value; } }),
         cadenceSelect(`chCad${i}`, g.perWeek, (v) => { goals[i].perWeek = v; }, `How often for goal ${i + 1}`)))));
     const err = (k) => errors[k] ? h("p", { class: "err" }, errors[k]) : null;
     const plan = state._handoffFor ? L.handoffPlan(challengeList(), state._handoffFor) : [];
     const keep = () => { state._draftName = name.value; state._draftStart = start.value; state._draftEnd = end.value; };
     return [
       h("h2", { id: "sheetTitle" }, "New challenge"),
-      h("p", { class: "sub" }, "Goals lock when it starts. After that only the owner changes goals, and everyone sets their own target. Start today or later."),
+      h("p", { class: "sub" }, "Everyone sets their own goals before it starts, and the pack checks each list. Start today or later."),
       h("div", { class: "field" }, h("label", { for: "chName" }, "Name"), name, err("name")),
       h("div", { class: "row2" }, h("div", { class: "field" }, h("label", { for: "chStart" }, "Starts"), start, err("start")), h("div", { class: "field" }, h("label", { for: "chEnd" }, "Ends"), end, err("end"))),
-      h("div", { class: "field", style: "margin-bottom:6px" }, h("label", {}, "Daily goals"), err("goals")), list,
-      h("button", { class: "mini-btn", type: "button", disabled: goals.length >= L.MAX_GOALS, onclick: () => { keep(); goals.push({ text: "", perWeek: null }); openSheet(build); document.getElementById(`chGoal${goals.length - 1}`)?.focus(); } }, "Add another goal"),
+      h("div", { class: "field", style: "margin-bottom:6px" }, h("label", {}, "Group goals (optional)"),
+        h("p", { class: "seg-note", style: "margin:0" }, "Leave this empty and everyone just sets their own. A group goal goes on everyone's list, and everyone has to do it."), err("goals")),
+      goals.length ? list : null,
+      h("button", { class: "mini-btn", type: "button", disabled: goals.length >= L.MAX_GOALS, onclick: () => { keep(); goals.push({ text: "", perWeek: null }); openSheet(build); document.getElementById(`chGoal${goals.length - 1}`)?.focus(); } }, goals.length ? "Add another group goal" : "Add a group goal"),
       plan.length ? h("div", { class: "lockline", role: "note" }, h("span", {}, plan.map((x) => x.remove
         ? `"${x.name}" hasn't started yet, so it gets removed. `
         : `"${x.name}" ends ${fmtDay(x.patch.end, { weekday: "long", month: "short", day: "numeric" })}. Its ticks and standings stay. `).join(""))) : null,
@@ -857,7 +922,7 @@ function openCreate() {
         if (handoff.length && state._handoffFor !== start.value) { state._handoffFor = start.value; openSheet(build); return; } // show what it replaces first
         e.target.disabled = true;
         try {
-          await state.backend.createChallenge(Object.assign(v.value, { createdBy: state.user.uid, createdAt: now() }));
+          await state.backend.createChallenge(Object.assign(v.value, { minGoals: 3, createdBy: state.user.uid, createdAt: now() }));
           for (const x of handoff) { if (x.remove) await state.backend.deleteChallenge(x.id); else await state.backend.mergeChallenge(x.id, x.patch); }
           state._draftName = state._draftStart = state._draftEnd = state._handoffFor = null;
           sheet.close();
@@ -879,55 +944,89 @@ function openSettings(id) {
     const ch = settingsChallenge(); // re-read on every rebuild: the shared doc changes under the open sheet
     const t = today();
     const owner = !!state.ms?.owner;
-    const locked = L.isLocked(ch, t) && !owner; // the owner can edit anything, any time
-    const goals = L.goalList(ch);
-    const mine = me().targets || {};
-    const items = goals.map((g) => {
+    const uid = state.user.uid;
+    const started = L.isLocked(ch, t);
+    const mineLocked = started && !owner; // your own goals lock at the start; the owner can still change them
+    const targets = me().targets || {};
+    // Group goals live on the challenge; your own under playerGoals[you]. Same editor, different write target.
+    const write = async (patch, ok) => {
+      try { await state.backend.mergeChallenge(ch.id, patch); toast(ok); } catch (e2) { console.error(e2); toast("That didn't save."); }
+    };
+    const goalEditor = (g, own) => {
+      const view = own ? L.ownView(ch, uid) : ch;
+      const wrap = (r) => (own ? L.ownPatch(uid, r) : r);
+      const canEdit = own ? !mineLocked : owner;
       const closed = !!g.closedOn && g.closedOn <= t;
-      const target = h("input", { id: `tgt-${g.id}`, maxlength: "40", value: mine[g.id] || "", placeholder: "Your number, e.g. 200 g", "aria-label": `Your target for ${g.text}`, disabled: closed,
+      const textField = canEdit ? h("input", { id: `gtx-${g.id}`, autocomplete: "off", maxlength: "60", value: g.text, "aria-label": "Goal", onchange: async (e) => {
+        const r = wrap(L.editGoalPatch(view, g.id, e.target.value, t, true));
+        if (r.error) return toast(r.error);
+        write(r.patch, "Goal updated.");
+      } }) : null;
+      const target = own ? null : h("input", { id: `tgt-${g.id}`, maxlength: "40", value: targets[g.id] || "", autocomplete: "off", placeholder: "Your number, e.g. 200 g…", "aria-label": `Your target for ${g.text}`, disabled: closed,
         onchange: async (e) => {
           const v = L.cleanText(e.target.value).slice(0, 40);
-          try { await state.backend.mergePlayer(state.user.uid, { targets: { [g.id]: v } }); toast("Target saved."); } catch (e2) { console.error(e2); toast("Target didn't save. Try again."); }
+          try { await state.backend.mergePlayer(uid, { targets: { [g.id]: v } }); toast("Target saved."); } catch (e2) { console.error(e2); toast("Target didn't save. Try again."); }
         } });
-      const textField = !locked ? h("input", { id: `gtx-${g.id}`, maxlength: "60", value: g.text, "aria-label": "Goal", onchange: async (e) => {
-        const r = L.editGoalPatch(ch, g.id, e.target.value, t, owner);
-        if (r.error) return toast(r.error);
-        try { await state.backend.mergeChallenge(ch.id, r.patch); toast("Goal updated."); } catch (e2) { console.error(e2); toast("That didn't save."); }
-      } }) : null;
       return h("div", { class: "gset" + (closed ? " closed" : "") },
-        h("div", { class: "gset-top" }, locked ? h("strong", {}, g.text) : h("div", { class: "field", style: "margin:0;flex:1" }, textField),
+        h("div", { class: "gset-top" }, canEdit ? h("div", { class: "field", style: "margin:0;flex:1" }, textField) : h("strong", {}, g.text),
           closed ? h("small", {}, `Closed ${fmtDay(g.closedOn, { month: "short", day: "numeric" })}`) : g.addedOn > ch.start ? h("small", {}, `Added ${fmtDay(g.addedOn, { month: "short", day: "numeric" })}`) : null),
-        locked ? h("span", { class: "tlabel" }, L.cadenceLabel(g)) :
-          h("div", { class: "field", style: "margin:0" }, h("label", { class: "tlabel", for: `cad-${g.id}` }, "How often"),
-            cadenceSelect(`cad-${g.id}`, g.perWeek, async (v) => {
-              const r = L.cadencePatch(ch, g.id, v, t, owner);
-              if (r.error) return toast(r.error);
-              try { await state.backend.mergeChallenge(ch.id, r.patch); toast("Saved."); } catch (e2) { console.error(e2); toast("That didn't save."); }
-            }, `How often for ${g.text}`)),
-        h("div", { class: "field", style: "margin:0" }, h("label", { class: "tlabel", for: `tgt-${g.id}` }, "Your target"), target),
-        closed || locked ? null : h("div", {}, h("button", { class: "mini-btn danger", type: "button", onclick: async () => {
+        canEdit ? h("div", { class: "field", style: "margin:0" }, h("label", { class: "tlabel", for: `cad-${g.id}` }, "How often"),
+          cadenceSelect(`cad-${g.id}`, g.perWeek, async (v) => {
+            const r = wrap(L.cadencePatch(view, g.id, v, t, true));
+            if (r.error) return toast(r.error);
+            write(r.patch, "Saved.");
+          }, `How often for ${g.text}`)) : h("span", { class: "tlabel" }, L.cadenceLabel(g)),
+        target ? h("div", { class: "field", style: "margin:0" }, h("label", { class: "tlabel", for: `tgt-${g.id}` }, "Your target"), target) : null,
+        closed || !canEdit ? null : h("div", {}, h("button", { class: "mini-btn danger", type: "button", onclick: async () => {
           if (confirmClose !== g.id) { confirmClose = g.id; openSheet(build); return; }
-          const r = L.closeGoalPatch(ch, g.id, t);
+          confirmClose = null;
+          if (own && !started) { // before the start, a removed goal is gone for good: it never counted
+            try { await state.backend.setOwnGoals(ch.id, uid, L.ownGoalsWithout(ch, uid, g.id)); toast("Goal removed."); } catch (e2) { console.error(e2); toast("That didn't save."); }
+            return;
+          }
+          const r = wrap(L.closeGoalPatch(view, g.id, t));
           if (r.error) return toast(r.error);
-          try { await state.backend.mergeChallenge(ch.id, r.patch); confirmClose = null; toast("Goal closed. Its history stays."); } catch (e2) { console.error(e2); toast("That didn't save."); }
-        } }, confirmClose === g.id ? "Tap again to close it for everyone" : "Close this goal")));
-    });
-    const addInput = h("input", { id: "addGoal", maxlength: "60", placeholder: "A new goal for everyone", "aria-label": "New goal" });
-    let addCad = null;
-    const addSel = cadenceSelect("addCad", null, (v) => { addCad = v; }, "How often for the new goal");
+          write(r.patch, "Goal closed. Its history stays.");
+        } }, confirmClose === g.id ? (own ? "Tap again to remove it" : "Tap again to close it for everyone") : (own ? (started ? "Close this goal" : "Remove") : "Close this goal"))));
+    };
+    // A goal removed before the start never counted: hide it.
+    const shown = (list) => list.filter((g) => !(g.closedOn && g.closedOn <= g.addedOn));
+    const own = shown(L.goalList(L.ownView(ch, uid)));
+    const group = shown(L.goalList(ch));
+    const openOwn = own.filter((g) => !g.closedOn || g.closedOn > t).length;
+    const adder = (id, own) => {
+      const input = h("input", { id, "data-keep": true, maxlength: "60", autocomplete: "off", placeholder: own ? "e.g. Protein 150 g, Read a chapter…" : "A goal for everyone…", "aria-label": own ? "New goal of yours" : "New group goal" });
+      let cad = null;
+      return h("div", { class: "field" }, h("label", { for: id }, own ? "Add a goal of yours" : "Add a group goal (everyone must do it)"), input,
+        h("div", { style: "display:flex;gap:8px" }, cadenceSelect(id + "Cad", null, (v) => { cad = v; }, "How often for the new goal"),
+          h("button", { class: "mini-btn", type: "button", style: "min-height:50px;flex:none", onclick: async (ev) => {
+            if (ev.currentTarget.disabled) return; // a double tap must not add the goal twice
+            if (own && (openOwn >= L.MAX_PERSONAL || !L.canAddOwn(ch, uid))) return toast(`${L.MAX_PERSONAL} goals of your own at most. Remove one first.`);
+            const view = own ? L.ownView(ch, uid) : ch;
+            const r = own ? L.ownPatch(uid, L.addGoalPatch(view, input.value, t, Date.now(), cad)) : L.addGoalPatch(view, input.value, t, Date.now(), cad);
+            if (r.error) return toast(r.error);
+            input.value = ""; // cleared before the save lands, so the rebuild doesn't put it back
+            const btn = ev.currentTarget;
+            btn.disabled = true; btn.textContent = "Adding…";
+            await write(r.patch, started ? "Goal added. It counts from today." : "Goal added.");
+            btn.disabled = false; btn.textContent = own ? "Add my goal" : "Add for everyone";
+          } }, own ? "Add my goal" : "Add for everyone")));
+    };
     return [
       h("h2", { id: "sheetTitle" }, ch.name),
       h("p", { class: "sub" }, `${fmtDay(ch.start, { month: "short", day: "numeric" })} – ${fmtDay(ch.end, { month: "short", day: "numeric", year: "numeric" })}`),
-      owner ? ownerControls(ch) : null,
-      owner && L.isLocked(ch, t) ? h("div", { class: "lockline" }, "You're the owner, so you can change anything here. Edits apply to everyone, and past days re-score on the live screens. Days already posted to the board keep their post.") : null,
-      locked ? (() => { const l = h("div", { class: "lockline" }); l.innerHTML = SVG.lock; l.append("Goals are locked once it starts, because they're scored. Only the owner can add or close one, so ask in Trash Talk. You can still change your own target."); return l; })() : null,
-      h("div", { style: "display:grid;gap:10px;margin-bottom:16px" }, items),
-      locked ? null : h("div", { class: "field" }, h("label", { for: "addGoal" }, "Add a goal"), addInput, h("div", { style: "display:flex;gap:8px" }, addSel,
-        h("button", { class: "mini-btn", type: "button", style: "min-height:50px;flex:none", onclick: async () => {
-          const r = L.addGoalPatch(ch, addInput.value, t, Date.now(), addCad);
-          if (r.error) return toast(r.error);
-          try { await state.backend.mergeChallenge(ch.id, r.patch); toast(locked ? "Goal added. It counts from today." : "Goal added."); } catch (e2) { console.error(e2); toast("That didn't save."); }
-        } }, "Add"))),
+      h("h3", { class: "gsec" }, "Your goals"),
+      mineLocked ? null : h("p", { class: "seg-note", style: "margin:-4px 2px 10px" }, `Anything that's a real challenge for you: fitness, reading, prayer, sleep. Up to ${L.MAX_PERSONAL}. They lock when it starts.`),
+      mineLocked ? (() => { const l = h("div", { class: "lockline" }); l.innerHTML = SVG.lock; l.append("Your goals are locked, because they're scored. Ask the owner in Trash Talk if one needs to change."); return l; })() : null,
+      own.length ? h("div", { style: "display:grid;gap:10px;margin-bottom:12px" }, own.map((g) => goalEditor(g, true)))
+        : h("p", { class: "empty", style: "margin-bottom:12px" }, h("b", {}, "No goals yet. "), "With none, every day counts as a strike."),
+      mineLocked ? null : adder("addGoal", true),
+      group.length || owner ? h("h3", { class: "gsec" }, "Group goals") : null,
+      group.length || owner ? h("p", { class: "seg-note", style: "margin:-4px 2px 10px" }, owner ? "Optional. A group goal lands on everyone's list and everyone has to do it." : "Set by the owner. Everyone has to do these.") : null,
+      group.length ? h("div", { style: "display:grid;gap:10px;margin-bottom:12px" }, group.map((g) => goalEditor(g, false))) : null,
+      owner ? adder("addGroupGoal", false) : null,
+      owner ? h("details", { class: "owner-wrap", open: state._ownerOpen !== false || null, ontoggle: (e) => { state._ownerOpen = e.target.open; } },
+        h("summary", {}, h("span", {}, "Owner settings"), h("small", {}, "Pot, dates, days off, minimum goals, house rules, people")), ownerControls(ch)) : null,
       owner ? recoverField(ch) : null,
       h("div", { class: "sheet-actions" }, closeBtn()),
     ];
@@ -997,6 +1096,7 @@ function welcomeCard() {
   return h("section", { class: "callout welcome", "aria-labelledby": "welH" },
     h("h2", { id: "welH" }, "Welcome to the pack"),
     h("ol", { class: "steps" },
+      h("li", {}, h("b", {}, "Set your own goals"), " before it starts, then the pack checks they're fair. Anything counts: lift, read, sleep."),
       h("li", {}, h("b", {}, "Tick your goals"), " every day. Tap a goal to check it off. You have until noon the next day to fix it."),
       h("li", {}, h("b", {}, "Miss one and it's a strike."), " Too many strikes and you're out of the pot."),
       h("li", {}, h("b", {}, "Talk trash"), " and watch the Daily Board. Everyone sees everyone.")),
@@ -1028,10 +1128,12 @@ function rulesFor(ch) {
       offs.length ? `Days off: ${offs.map((d) => fmtDay(d, { month: "short", day: "numeric" })).join(", ")}. Nothing counts on them.` : null,
     ]),
     sec("The goals", [
-      daily.length ? `Every day: ${daily.map((g) => g.text).join(", ")}.` : null,
-      ...weekly.map((g) => `${g.text}: ${L.cadenceLabel(g)}. Weeks run Monday to Sunday.`),
-      "Set your own number for each goal under Edit goals. That's your target, and it's on your honor.",
-      !daily.length && !weekly.length ? "No goals yet." : null,
+      `Everyone sets their own goals before it starts, at least ${L.minGoalsOn(Object.assign({ playerGoals: {} }, ch))}. Anything counts: fitness, reading, prayer, sleep. Each one is every day or N days a week (weeks run Monday to Sunday).`,
+      "The goal check: the pack looks at each list and taps Fair or Too easy. A list needs a yes from more than half of the others. Change a goal and its votes reset. Not approved by the start? The owner decides.",
+      "Your goals lock when it starts. After that only the owner can change them.",
+      "A day with fewer goals than the minimum counts as a strike, so nobody can play it safe with one easy goal.",
+      daily.length || weekly.length ? `Group goals (everyone has to do these): ${daily.concat(weekly).map((g) => g.text + (L.isWeekly(g) ? ` (${L.cadenceLabel(g)})` : "")).join(", ")}.` : null,
+      "Ticking is on your honor. Everyone sees everyone's goals and ticks.",
     ]),
     pot ? sec("The pot", [
       `Buy-in: ${money(pot.buyIn)} each, paid up front to whoever's holding it. The app never moves money.`,
@@ -1068,7 +1170,9 @@ function openHelp(open = null) {
     h("h2", { id: "sheetTitle" }, "How it works"),
     h("p", { class: "sub" }, "Everything in one place. Tap a question."),
     q("tick", "How do I check off a goal?", p("Tap it on the main screen. Tap again to undo. You can fix yesterday until noon today: use the Yesterday button above your goals.")),
-    q("target", "What's “your target”?", p("Your own number for a goal, like 180 g of protein. Set it under Edit goals. Everyone has their own; it's on your honor.")),
+    q("goals", "Who sets the goals?", p("You do. Before it starts, add your own under Edit goals: anything that's a real challenge for you, fitness or not. Read a chapter counts. The owner can add group goals that land on everyone's list too.")),
+    q("goalcheck", "What's the goal check?", p("Before the start, the pack looks at each list and taps Fair or Too easy. A list needs a yes from more than half of the others, or the owner's OK. Change a goal and its votes reset. Each list needs a minimum number of goals; a day with fewer counts as a strike.")),
+    q("target", "What's “your target”?", p("On a group goal, your own number, like 180 g of protein. Set it under Edit goals. Your own goals don't need one: the goal is the target.")),
     q("weekly", "How do weekly goals work?", p("Some goals are “N days a week” instead of every day. Weeks run Monday to Sunday. The bar shows how close you are.")),
     q("strike", "What's a strike?", p("A day you didn't finish every daily goal, or a weekly goal you came up short on when the week ends. A day only counts once it locks at noon the next day. Days off never count.")),
     q("pot", "How does the pot work?", p("Everyone puts in the buy-in up front, outside the app. Too many strikes and you're out. Whoever is still in at the end splits it. If nobody makes it, everyone gets their money back.")),
@@ -1108,9 +1212,23 @@ async function sendInvite() {
   catch { state._inviteShown = true; openSheet(() => [h("h2", { id: "sheetTitle" }, "The invite"), h("p", { class: "sub" }, "Copy this and text it."), h("pre", { class: "invite-text" }, text), h("div", { class: "sheet-actions" }, closeBtn())]); }
 }
 
+// Owner only: the fewest goals each player needs. A day with fewer counts as a strike.
+function minGoalsField(ch) {
+  const sel = h("select", { id: "minGoals", class: "cad", "aria-label": "Fewest goals each player needs" },
+    Array.from({ length: L.MAX_PERSONAL }, (_, i) => h("option", { value: String(i + 1) }, `At least ${i + 1} goal${i ? "s" : ""} each`)));
+  sel.value = String(L.minGoalsOn(Object.assign({ playerGoals: {} }, ch)));
+  return h("div", { class: "field" }, h("label", { for: "minGoals" }, "Goals per player"), sel,
+    h("button", { class: "mini-btn", type: "button", style: "min-height:44px", onclick: async () => {
+      const r = L.minGoalsPatch(sel.value);
+      if (r.error) return toast(r.error);
+      try { await state.backend.mergeChallenge(ch.id, r.patch); toast(`Saved: at least ${r.patch.minGoals} each.`); } catch (e) { console.error(e); toast("That didn't save."); }
+    } }, "Save minimum"),
+    h("p", { class: "seg-note" }, "Everyone sets their own goals. A day with fewer than this counts as a strike, so nobody can play it safe with one easy goal."));
+}
+
 // Owner only: house rules. Words only; the app never scores them.
 function houseRulesField(ch) {
-  const ta = h("textarea", { id: "houseRules", rows: "5", maxlength: String(L.MAX_RULES), placeholder: "e.g. Cheat meals need a photo in Trash Talk.", "aria-label": "House rules" });
+  const ta = h("textarea", { id: "houseRules", rows: "5", maxlength: String(L.MAX_RULES), autocomplete: "off", placeholder: "e.g. Cheat meals need a photo in Trash Talk…", "aria-label": "House rules" });
   ta.value = ch.houseRules || "";
   return h("div", { class: "field" }, h("label", { for: "houseRules" }, "House rules"), ta,
     h("button", { class: "mini-btn", type: "button", style: "min-height:44px", onclick: async () => {
