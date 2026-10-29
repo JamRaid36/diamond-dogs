@@ -75,6 +75,8 @@ export function createFirebaseBackend(config) {
     // Owner only (the rules refuse anyone else).
     async deleteChallenge(id) { await deleteDoc(doc(db, "challenges", id)); },
     async deletePlayer(uid) { await deleteDoc(doc(db, "players", uid)); },
+    // Owner only: re-post a day in one write (the rules allow the owner, same date, same challenge).
+    async replaceResult(date, data) { await setDoc(doc(db, "results", date), data); },
     async createChallenge(data) { const ref = await addDoc(collection(db, "challenges"), data); return ref.id; },
     // Create-only: the rules refuse an update, so a second opener's write fails and is ignored.
     async createResult(date, data) {

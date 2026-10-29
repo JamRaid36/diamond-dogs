@@ -90,6 +90,12 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .chip { display: inline-flex; align-items: center; gap: 6px; font: 500 11px/1 var(--mono); letter-spacing: 0.04em;
   text-transform: uppercase; color: var(--ink-soft); background: var(--surface); border: 1px solid var(--line);
   padding: 7px 10px; border-radius: 999px; white-space: nowrap; }
+button.chip { min-height: 44px; cursor: pointer; font: 500 11px/1 var(--mono); }
+button.chip::after { content: "▾"; font-size: 10px; color: var(--muted); }
+.ch-list { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 8px; }
+.ch-list h3 { margin: 14px 2px 6px; font: 600 12px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.next-card[aria-current="true"] { border-color: var(--blaze); }
+.viewing { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-radius: 14px; background: var(--bg-deep); font-size: 14px; }
 .icon-btn { width: 44px; height: 44px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface);
   display: grid; place-items: center; }
 .icon-btn svg { width: 20px; height: 20px; }
@@ -351,7 +357,7 @@ body.gated .top .mark { visibility: hidden; }
 <header class="top">
   <div class="wrap">
     <div class="mark-wrap"><img src="logo-200.png" alt="" width="64" height="52"><p class="mark">Alpha <span>Pack</span></p></div>
-    <span class="chip" id="dayChip" hidden></span>
+    <button class="chip" id="dayChip" type="button" aria-label="All challenges" hidden></button>
     <button class="icon-btn" id="menuBtn" type="button" aria-label="Challenge settings" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
     </button>

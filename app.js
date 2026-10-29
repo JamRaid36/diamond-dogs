@@ -6,7 +6,7 @@ const app = $("#app");
 
 const state = {
   backend: null, user: null, ms: null, players: null, challenges: null, results: null, members: null, chat: {}, chatDraft: "", confirmDel: null,
-  viewDay: "today", expanded: new Set(), lastDay: null, lastFinal: null, posted: false, unsubs: [],
+  viewDay: "today", expanded: new Set(), chId: (() => { try { return localStorage.getItem("ap.chId"); } catch { return null; } })(), lastDay: null, lastFinal: null, posted: false, unsubs: [],
 };
 const now = () => (window.DD_NOW ? window.DD_NOW() : Date.now());
 const today = () => L.pacificDate(now());
@@ -46,7 +46,15 @@ function toast(msg) {
 function challengeList() {
   return Object.entries(state.challenges || {}).map(([id, c]) => Object.assign({ id }, c));
 }
-function current() { return L.currentChallenge(challengeList(), today()); }
+function defaultChallenge() { return L.currentChallenge(challengeList(), today()); }
+// The challenge on screen: the one picked on the Challenges screen, else the running/next/last one.
+function current() { return (state.chId && state.challenges?.[state.chId] && challengeList().find((c) => c.id === state.chId)) || defaultChallenge(); }
+function pick(id) {
+  state.chId = id && id !== defaultChallenge()?.id ? id : null;
+  state.viewDay = null; state.expanded = new Set();
+  try { state.chId ? localStorage.setItem("ap.chId", state.chId) : localStorage.removeItem("ap.chId"); } catch { /* private mode */ }
+  render(); window.scrollTo({ top: 0 });
+}
 function me() { return state.players?.[state.user?.uid]; }
 function viewDate() {
   const t = today();
@@ -96,9 +104,11 @@ function renderInner() {
   else chip.textContent = `Day ${L.dayNumber(ch, t)} / ${L.challengeLength(ch)}`;
   app.replaceChildren(...[ // sections that have nothing to show return null; never hand null to the DOM
     demoBanner(),
+    state.chId ? h("div", { class: "viewing", role: "note" }, h("span", {}, "Viewing ", h("b", {}, ch.name)),
+      h("button", { class: "link-btn", type: "button", onclick: () => pick(null) }, "Back to current")) : null,
     h("img", { class: "brand-hero", src: "logo-hero.webp", alt: "Alpha Pack", width: "720", height: "582" }),
     t < ch.start ? renderUpcoming(ch) : t > ch.end ? renderFinished(ch) : renderYou(ch),
-    renderUpNext(ch),
+    state.chId ? null : renderUpNext(ch),
     renderPot(ch),
     renderPack(ch),
     renderChat(),
@@ -326,9 +336,39 @@ function renderUpNext(ch) {
     ...next.map((c) => {
       const goals = L.goalList(c).filter((g) => !g.closedOn);
       const bits = [`Starts ${fmtDay(c.start, { weekday: "long", month: "short", day: "numeric" })}`, `${goals.length} goal${goals.length === 1 ? "" : "s"}`, c.pot?.buyIn > 0 ? `${money(c.pot.buyIn)} buy-in` : null].filter(Boolean);
-      return h("button", { class: "next-card", type: "button", onclick: () => openSettings(c.id) },
+      return h("button", { class: "next-card", type: "button", onclick: () => pick(c.id) },
         h("span", {}, h("b", {}, c.name), h("small", {}, bits.join(" · "))), h("span", { class: "next-go", "aria-hidden": "true" }, "›"));
     }));
+}
+
+// Every challenge in the group: running, upcoming, past. Tap one to work in it.
+function openChallenges() {
+  state._sheetIs = "challenges";
+  const build = () => {
+    const t = today();
+    const all = challengeList();
+    const shown = current();
+    const row = (c) => {
+      const st = c.pot?.buyIn > 0 ? L.potStatus(state.players, c, now()) : null;
+      const status = t < c.start ? `Starts ${fmtDay(c.start, { weekday: "short", month: "short", day: "numeric" })}` : t > c.end ? `Ended ${fmtDay(c.end, { month: "short", day: "numeric" })}` : `Day ${L.dayNumber(c, t)} of ${L.challengeLength(c)}`;
+      const potBit = st ? (st.final ? (st.refund ? "pot refunded" : `${money(st.share)} each to ${st.alive}`) : `${money(st.pot)} pot`) : null;
+      return h("li", {}, h("button", { class: "next-card", type: "button", "aria-current": String(shown?.id === c.id), onclick: () => { sheet.close(); pick(c.id); } },
+        h("span", {}, h("b", {}, c.name), h("small", {}, [status, `${fmtDay(c.start, { month: "short", day: "numeric" })} – ${fmtDay(c.end, { month: "short", day: "numeric" })}`, potBit].filter(Boolean).join(" · "))),
+        h("span", { class: "next-go", "aria-hidden": "true" }, "›")));
+    };
+    const running = all.filter((c) => L.inChallenge(c, t)).sort((a, b) => (a.start < b.start ? 1 : -1));
+    const next = all.filter((c) => c.start > t).sort((a, b) => (a.start < b.start ? -1 : 1));
+    const past = all.filter((c) => c.end < t).sort((a, b) => (a.end < b.end ? 1 : -1));
+    const group = (title, list) => list.length ? [h("h3", {}, title), h("ul", { class: "ch-list" }, list.map(row))] : [];
+    return [
+      h("h2", { id: "sheetTitle" }, "Challenges"),
+      h("p", { class: "sub" }, "Tap one to open it. Its board, goals and pot come with it."),
+      ...group("Running now", running), ...group("Up next", next), ...group("Past", past),
+      !all.length ? h("p", { class: "empty" }, "No challenges yet.") : null,
+      h("div", { class: "sheet-actions" }, closeBtn(), state.ms?.owner ? h("button", { class: "btn blaze", type: "button", onclick: openCreate }, "New challenge") : null),
+    ];
+  };
+  openSheet(build);
 }
 
 const money = (n) => "$" + (Number.isInteger(n) ? String(n) : n.toFixed(2));
@@ -386,7 +426,7 @@ function renderPack(ch) {
         if (pr.met) dot.innerHTML = SVG.check;
         return h("div", {}, dot, h("span", { class: "t" }, g.text, h("small", {}, ` · ${L.cadenceLabel(g)}${p.targets?.[g.id] ? " · " + p.targets[g.id] : ""}`)),
           h("span", { class: "wk" + (pr.met ? " met" : "") }, `${pr.done}/${pr.need}`));
-      }), state.ms?.owner && !isMe ? ownerEditor(ch, uid, p) : null) : null);
+      }), state.ms?.owner ? ownerEditor(ch, uid, p) : null) : null);
   });
   return h("section", { "aria-labelledby": "packH" },
     h("div", { class: "sec-head" }, h("h2", { id: "packH" }, "The Pack"), h("span", { class: "note" }, "Tap a tag for details")),
@@ -418,13 +458,21 @@ function renderGrid(ch) {
 }
 
 function boardPost(ch, r, live) {
+  const redo = !live && state.ms?.owner ? h("button", { class: "mini-btn", type: "button", style: "min-height:44px;margin-top:10px", onclick: async () => {
+    if (state.confirmRedo !== r.date) { state.confirmRedo = r.date; render(); return; }
+    state.confirmRedo = null;
+    try {
+      await state.backend.replaceResult(L.resultId(r.date), L.buildResult(state.players, ch, r.date, now())); // one write: never a gap
+      toast(`${fmtDay(r.date)} re-posted from today's ticks.`);
+    } catch (e) { console.error(e); toast("That didn't save."); }
+  } }, state.confirmRedo === r.date ? "Tap again to re-post it" : "Redo this day") : null;
   return h("article", { class: "post" + (live ? " live" : "") },
     h("h3", {}, h("span", {}, fmtDay(r.date), live ? h("span", { class: "live-chip" }, "Live") : null),
       h("small", {}, live ? "Open · still ticking" : `Day ${L.dayNumber(ch, r.date)}`)),
     h("ol", {}, (r.rows || []).map((row, i) => h("li", { class: i === 0 && row.pct > 0 ? "top" : null },
       h("span", { class: "rank" }, String(i + 1)),
       h("div", {}, h("span", { class: "nm" }, row.name), row.perfect ? h("span", { class: "badge" }, "Perfect") : null, h("div", { class: "bar" }, h("i", { style: `width:${row.pct}%` }))),
-      h("span", { class: "pct" }, row.of ? `${row.hit}/${row.of}` : "", row.wkOf ? h("small", { class: "wkn" }, `wk ${row.wkMet}/${row.wkOf}`) : null)))));
+      h("span", { class: "pct" }, row.of ? `${row.hit}/${row.of}` : "", row.wkOf ? h("small", { class: "wkn" }, `wk ${row.wkMet}/${row.wkOf}`) : null)))), redo);
 }
 
 // Days still open (today, and yesterday until noon) show live from everyone's ticks; closed days are the posted docs.
@@ -463,14 +511,21 @@ function ownerEditor(ch, uid, p) {
     onchange: (e) => { state.ownerDay = Object.assign({}, state.ownerDay, { [uid]: e.target.value }); render(); } },
     days.map((d) => h("option", { value: d }, d === t ? "Today" : fmtDay(d))));
   sel.value = day;
+  const self = uid === state.user.uid;
+  const nameIn = h("input", { id: `nm-${uid.replace(/[^a-zA-Z0-9_-]/g, "")}`, maxlength: "24", value: p.name || "", "aria-label": `Name for ${p.name || "player"}` });
+  const rename = h("div", { style: "display:flex;gap:8px" }, nameIn, h("button", { class: "mini-btn", type: "button", style: "min-height:44px;flex:none", onclick: async () => {
+    const v = L.cleanText(nameIn.value).slice(0, 24);
+    if (!v) return toast("Give them a name.");
+    try { await state.backend.mergePlayer(uid, { name: v }); toast("Renamed."); } catch (e) { console.error(e); toast("That didn't save."); }
+  } }, "Rename"));
   const sure = state.confirmRemove === uid;
-  const remove = h("button", { class: "mini-btn danger", type: "button", onclick: async () => {
+  const remove = self ? null : h("button", { class: "mini-btn danger", type: "button", onclick: async () => {
     if (!sure) { state.confirmRemove = uid; render(); return; }
     state.confirmRemove = null;
     try { await state.backend.deletePlayer(uid); toast(`${p.name || "They"} left the board${ch.pot?.buyIn > 0 ? " and the pot" : ""}. Remove their email in People too, or they can rejoin.`); }
     catch (e) { console.error(e); toast("That didn't save."); }
   } }, sure ? `Tap again: delete ${p.name || "them"}${ch.pot?.buyIn > 0 ? ", their ticks and their buy-in" : " and all their ticks"}` : "Take off the board");
-  return h("div", { class: "owner-edit" }, h("span", { class: "tlabel" }, "Owner: fix their ticks"), sel,
+  return h("div", { class: "owner-edit" }, h("span", { class: "tlabel" }, self ? "Owner: fix your ticks" : "Owner: fix their ticks"), sel,
     h("div", { class: "owner-ticks" }, L.activeGoals(ch, day).map((g) => {
       const on = L.isDone(p, day, g.id);
       return h("button", { class: "mini-btn" + (on ? " on" : ""), type: "button", "aria-pressed": String(on), onclick: async () => {
@@ -479,7 +534,7 @@ function ownerEditor(ch, uid, p) {
         try { await state.backend.mergePlayer(uid, r.patch); toast(`${p.name || "Their"} ${g.text}: ${on ? "unticked" : "ticked"}.`); }
         catch (e) { console.error(e); toast("That didn't save. Only the owner can edit other players."); }
       } }, `${on ? "✓ " : ""}${g.text}`);
-    })), remove);
+    })), rename, remove);
 }
 
 // Owner only: bring back goals whose ticks still exist (ids found in players' days but missing from the challenge).
@@ -549,7 +604,14 @@ function ownerControls(ch) {
           else { await state.backend.mergeChallenge(ch.id, end.patch); toast("Ends tonight. Today still counts, and the final board shows tomorrow."); }
         } catch (e) { console.error(e); toast("That didn't save."); }
       } }, sure ? (end.remove ? "Tap again to remove it" : "Tap again to end it tonight") : (end.remove ? "Cancel this challenge" : "End it early")),
-      h("p", { class: "seg-note" }, end.remove ? "It hasn't started, so nothing is lost." : "Today is the last day. Every tick so far stays, and the final standings show tomorrow.")));
+      h("p", { class: "seg-note" }, end.remove ? "It hasn't started, so nothing is lost." : "Today is the last day. Every tick so far stays, and the final standings show tomorrow.")),
+    end.remove ? null : h("div", { class: "field" },
+      h("button", { class: "mini-btn danger", type: "button", style: "min-height:44px", onclick: async () => {
+        if (state.confirmDelete !== ch.id) { state.confirmDelete = ch.id; openSettings(state._settingsId); return; }
+        state.confirmDelete = null;
+        try { await state.backend.deleteChallenge(ch.id); sheet.close(); pick(null); toast(`${ch.name} deleted.`); } catch (e) { console.error(e); toast("That didn't save."); }
+      } }, state.confirmDelete === ch.id ? `Tap again to delete ${ch.name} for good` : "Delete this challenge"),
+      h("p", { class: "seg-note" }, "Removes the challenge, its goals, days off and pot for everyone. Ticks stay on each player, but nothing shows them.")));
 }
 
 // Owner only: the pot. Buy-in 0 turns it off. Paid is a record of who settled up; the app never moves money.
@@ -655,6 +717,7 @@ function openSheet(build) {
 }
 sheet.addEventListener("click", (e) => { if (e.target === sheet) sheet.close(); });
 $("#menuBtn").addEventListener("click", openSettings);
+$("#dayChip").addEventListener("click", openChallenges);
 
 function closeBtn() { return h("button", { class: "btn ghost", type: "button", onclick: () => sheet.close() }, "Done"); }
 
@@ -802,7 +865,7 @@ sheet.addEventListener("close", () => { state._sheetIs = null; });
 // ---------- daily board posting (idempotent: results/<date> is create-only) ----------
 async function postDueResults() {
   if (state.posting || !state.players || !state.challenges || !state.results) return;
-  const ch = current();
+  const ch = defaultChallenge(); // the board posts for the live challenge, whatever is on screen
   if (!ch) return;
   const due = L.resultsDue(ch, Object.keys(state.results), now(), 7);
   if (!due.length) return;
