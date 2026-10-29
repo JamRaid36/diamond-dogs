@@ -98,6 +98,7 @@ function renderInner() {
     demoBanner(),
     h("img", { class: "brand-hero", src: "logo-hero.webp", alt: "Alpha Pack", width: "720", height: "582" }),
     t < ch.start ? renderUpcoming(ch) : t > ch.end ? renderFinished(ch) : renderYou(ch),
+    renderUpNext(ch),
     renderPot(ch),
     renderPack(ch),
     renderChat(),
@@ -315,6 +316,21 @@ function renderFinished(ch) {
     h("div", { class: "sheet-actions" }, h("button", { class: "btn blaze", type: "button", onclick: openCreate }, "Start the next challenge")));
 }
 
+// Challenges set up to start after the one on screen. Tap to see goals, set your target, or (owner) set it up.
+function renderUpNext(ch) {
+  const t = today();
+  const next = challengeList().filter((c) => c.id !== ch.id && c.start > t).sort((a, b) => (a.start < b.start ? -1 : 1));
+  if (!next.length) return null;
+  return h("section", { "aria-labelledby": "nextH" },
+    h("div", { class: "sec-head" }, h("h2", { id: "nextH" }, "Up next")),
+    ...next.map((c) => {
+      const goals = L.goalList(c).filter((g) => !g.closedOn);
+      const bits = [`Starts ${fmtDay(c.start, { weekday: "long", month: "short", day: "numeric" })}`, `${goals.length} goal${goals.length === 1 ? "" : "s"}`, c.pot?.buyIn > 0 ? `${money(c.pot.buyIn)} buy-in` : null].filter(Boolean);
+      return h("button", { class: "next-card", type: "button", onclick: () => openSettings(c.id) },
+        h("span", {}, h("b", {}, c.name), h("small", {}, bits.join(" · "))), h("span", { class: "next-go", "aria-hidden": "true" }, "›"));
+    }));
+}
+
 const money = (n) => "$" + (Number.isInteger(n) ? String(n) : n.toFixed(2));
 
 // The pot: play money. Everyone on the board is in for the buy-in; strikes knock people out; survivors split it.
@@ -526,7 +542,7 @@ function ownerControls(ch) {
     potField(ch),
     end.error ? null : h("div", { class: "field" },
       h("button", { class: "mini-btn danger", type: "button", style: "min-height:44px", onclick: async () => {
-        if (!sure) { state.confirmEnd = ch.id; openSettings(); return; }
+        if (!sure) { state.confirmEnd = ch.id; openSettings(state._settingsId); return; }
         state.confirmEnd = null;
         try {
           if (end.remove) { await state.backend.deleteChallenge(ch.id); sheet.close(); toast("Removed. It hadn't started."); }
@@ -681,7 +697,7 @@ function openCreate() {
           for (const x of handoff) { if (x.remove) await state.backend.deleteChallenge(x.id); else await state.backend.mergeChallenge(x.id, x.patch); }
           state._draftName = state._draftStart = state._draftEnd = state._handoffFor = null;
           sheet.close();
-          toast("Challenge set. Go get it.");
+          toast(v.value.start > t && current() && current().start <= t ? `Set for ${fmtDay(v.value.start, { weekday: "long" })}. It's under Up next.` : "Challenge set. Go get it.");
         } catch (e2) { console.error(e2); e.target.disabled = false; toast("That didn't save. Try again."); }
       } }, plan.length && state._handoffFor === start.value ? "Tap again to start it" : "Start it")),
     ];
@@ -689,11 +705,14 @@ function openCreate() {
   openSheet(build);
 }
 
-function openSettings() {
-  if (!current()) return openCreate();
+// The menu for one challenge: the current one, or (id) an upcoming one opened from Up next.
+function settingsChallenge() { return (state._settingsId && challengeList().find((c) => c.id === state._settingsId)) || current(); }
+function openSettings(id) {
+  state._settingsId = typeof id === "string" ? id : null; // called from click handlers too: an event is not an id
+  if (!settingsChallenge()) return openCreate();
   let confirmClose = null;
   const build = () => {
-    const ch = current(); // re-read on every rebuild: the shared doc changes under the open sheet
+    const ch = settingsChallenge(); // re-read on every rebuild: the shared doc changes under the open sheet
     const t = today();
     const owner = !!state.ms?.owner;
     const locked = L.isLocked(ch, t) && !owner; // the owner can edit anything, any time
@@ -773,7 +792,7 @@ function openMembers() {
           if (emails.includes(em)) return toast("Already in.");
           try { await state.backend.setMembers(emails.concat(em)); toast("Added. Send them the link."); openSheet(build); } catch (e) { console.error(e); toast("That didn't save."); }
         } }, "Add"))),
-      h("div", { class: "sheet-actions" }, h("button", { class: "btn ghost", type: "button", onclick: openSettings }, "Back")),
+      h("div", { class: "sheet-actions" }, h("button", { class: "btn ghost", type: "button", onclick: () => openSettings(state._settingsId) }, "Back")),
     ];
   };
   openSheet(build);

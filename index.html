@@ -204,6 +204,11 @@ main { padding-block: 18px 48px; display: grid; gap: 28px; }
 
 /* daily board */
 .board { display: grid; gap: 12px; }
+.next-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 64px; padding: 14px 16px; border-radius: var(--r); border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow); color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
+.next-card + .next-card { margin-top: 8px; }
+.next-card b { display: block; font: 800 18px/1.1 var(--display); text-transform: uppercase; letter-spacing: 0.04em; }
+.next-card small { display: block; margin-top: 4px; font-size: 13px; color: var(--muted); }
+.next-go { font-size: 28px; line-height: 1; color: var(--blaze); }
 .pot { background: var(--surface); border-radius: var(--r); box-shadow: var(--shadow); padding: 16px; border: 1px solid color-mix(in srgb, var(--blaze) 40%, var(--line)); }
 .pot-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .pot-amt { font: 800 44px/1 var(--display); color: var(--blaze); letter-spacing: 0.01em; }
