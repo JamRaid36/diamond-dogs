@@ -5,7 +5,8 @@ const L = window.DDLogic;
 function deepMerge(target, patch) {
   const out = Array.isArray(target) ? target.slice() : Object.assign({}, target);
   for (const [k, v] of Object.entries(patch)) {
-    out[k] = v && typeof v === "object" && !Array.isArray(v) && out[k] && typeof out[k] === "object" ? deepMerge(out[k], v) : v;
+    // Firestore semantics: a non-empty map merges; an empty map replaces the field (that's how goals got wiped once)
+    out[k] = v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length && out[k] && typeof out[k] === "object" ? deepMerge(out[k], v) : v;
   }
   return out;
 }
@@ -26,6 +27,7 @@ function seed(scenario, now) {
       g4: { text: "Lights out by 11", addedOn: scenario === "upcoming" ? d(2) : d(-2), closedOn: null, order: 4 },
     },
   };
+  if (scenario === "lostgoals") { ch.start = d(-2); ch.createdAt = now; ch.goals = {}; }
   if (scenario === "today") { ch.start = today; ch.createdAt = now; Object.values(ch.goals).forEach((g) => { g.addedOn = today; }); }
   if (scenario === "catchup") { ch.start = d(-2); ch.createdAt = now; Object.values(ch.goals).forEach((g) => { g.addedOn = d(-2); }); }
   store.challenges.c1 = ch;
@@ -39,7 +41,8 @@ function seed(scenario, now) {
   const targets = { me: { g1: "200 g", g2: "45 min" }, sam: { g1: "180 g", g2: "Lift 3x" }, riley: { g1: "150 g" } };
   for (const uid of Object.keys(pattern)) {
     const days = {};
-    if (!["upcoming", "catchup", "today"].includes(scenario)) {
+    if (scenario === "lostgoals" && uid === "me") days[today] = { g1: true, g3: true, g4: false };
+    if (!["upcoming", "catchup", "today", "lostgoals"].includes(scenario)) {
       pattern[uid].forEach((row, i) => {
         const day = d(-5 + i);
         days[day] = {};
@@ -48,7 +51,7 @@ function seed(scenario, now) {
     }
     store.players[uid] = { name: names[uid], joinedAt: joined, targets: targets[uid], days };
   }
-  if (!["upcoming", "catchup", "today"].includes(scenario)) {
+  if (!["upcoming", "catchup", "today", "lostgoals"].includes(scenario)) {
     const chWithId = Object.assign({ id: "c1" }, ch);
     for (let i = -5; i <= -2; i++) store.results[d(i)] = L.buildResult(store.players, chWithId, d(i), now);
   }
@@ -82,7 +85,7 @@ export function createDemoBackend(scenario = "active", opts = {}) {
     async setupGroup() {},
     watch(coll, cb) { listeners[coll].add(cb); setTimeout(() => cb(coll === "members" ? store.members : Object.assign({}, store[coll])), opts.latency ?? 120); return () => listeners[coll].delete(cb); },
     async mergePlayer(uid, patch) { await wait(); if (uid !== user?.uid && store.members.ownerEmail !== user?.email) throw new Error("not yours"); store.players[uid] = deepMerge(store.players[uid] || {}, patch); emit("players"); },
-    async mergeChallenge(id, patch) { await wait(); store.challenges[id] = deepMerge(store.challenges[id] || {}, patch); emit("challenges"); },
+    async mergeChallenge(id, patch) { patch = L.pruneEmpty(patch); await wait(); store.challenges[id] = deepMerge(store.challenges[id] || {}, patch); emit("challenges"); },
     async createChallenge(data) { await wait(); const id = "c" + Date.now().toString(36); store.challenges[id] = data; emit("challenges"); return id; },
     async createResult(date, data) { await wait(); if (store.results[date]) return false; store.results[date] = data; emit("results"); return true; },
     async setMembers(emails) { await wait(); store.members = Object.assign({}, store.members, { emails }); emit("members"); },

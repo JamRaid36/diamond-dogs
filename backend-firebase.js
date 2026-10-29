@@ -66,8 +66,10 @@ export function createFirebaseBackend(config) {
         cb(out);
       }, onError);
     },
+    // Player writes are left as-is: joining must create days:{} (the rules require the map), and ticks are never empty.
     async mergePlayer(uid, patch) { await setDoc(doc(db, "players", uid), patch, { merge: true }); },
-    async mergeChallenge(id, patch) { await setDoc(doc(db, "challenges", id), patch, { merge: true }); },
+    // pruneEmpty: a merge write with an empty map replaces the field; never send one to a challenge.
+    async mergeChallenge(id, patch) { await setDoc(doc(db, "challenges", id), window.DDLogic.pruneEmpty(patch), { merge: true }); },
     async createChallenge(data) { const ref = await addDoc(collection(db, "challenges"), data); return ref.id; },
     // Create-only: the rules refuse an update, so a second opener's write fails and is ignored.
     async createResult(date, data) {

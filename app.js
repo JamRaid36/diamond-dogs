@@ -420,6 +420,26 @@ function ownerEditor(ch, uid, p) {
     })));
 }
 
+// Owner only: bring back goals whose ticks still exist (ids found in players' days but missing from the challenge).
+const RECOVER_GUESS = { g1: ["Protein 130g", null], g2: ["Under 2,000 calories", 5], g3: ["Cardio or a walk", 5], g4: ["Resistance Training", 2], g5: ["Never over 3,000 calories", null] };
+function recoverField(ch) {
+  const orphans = L.orphanGoals(state.players, ch);
+  if (!orphans.length) return null;
+  const items = orphans.map((o) => ({ id: o.id, text: (RECOVER_GUESS[o.id] || [""])[0], perWeek: (RECOVER_GUESS[o.id] || [null, null])[1] }));
+  return h("div", { class: "catchup", role: "note" },
+    h("strong", {}, "Recover goals"),
+    h("p", {}, `Found ticks for ${orphans.length} goal${orphans.length === 1 ? "" : "s"} that went missing. Check each name and how often, then recover. Every tick saved under them comes back.`),
+    ...orphans.map((o, i) => h("div", { class: "gfields" },
+      h("input", { id: `rec-${o.id}`, maxlength: "60", value: items[i].text, placeholder: "Goal name", "aria-label": `Name for ${o.id}`, oninput: (e) => { items[i].text = e.target.value; } }),
+      cadenceSelect(`reccad-${o.id}`, items[i].perWeek, (v) => { items[i].perWeek = v; }, `How often for ${o.id}`),
+      h("small", { class: "seg-note" }, `${o.ticks} tick${o.ticks === 1 ? "" : "s"} saved · ${o.days.map((d) => fmtDay(d, { weekday: "short" })).join(", ")}`))),
+    h("button", { class: "btn blaze", type: "button", onclick: async () => {
+      const r = L.recoverGoalsPatch(ch, items);
+      if (r.error) return toast(r.error);
+      try { await state.backend.mergeChallenge(ch.id, r.patch); toast("Goals recovered. Your ticks are back."); } catch (e) { console.error(e); toast("That didn't save."); }
+    } }, "Recover goals"));
+}
+
 // Owner only: change the dates. Moving the start back on set-up day also opens the catch-up for everyone.
 function datesField(ch) {
   const start = h("input", { id: "editStart", type: "date", value: ch.start });
@@ -554,6 +574,7 @@ function openSettings() {
           if (r.error) return toast(r.error);
           try { await state.backend.mergeChallenge(ch.id, r.patch); toast(locked ? "Goal added. It counts from today." : "Goal added."); } catch (e2) { console.error(e2); toast("That didn't save."); }
         } }, "Add"))),
+      owner ? recoverField(ch) : null,
       owner ? datesField(ch) : null,
       state.ms?.owner ? h("button", { class: "mini-btn", type: "button", style: "margin-bottom:12px", onclick: openMembers }, "Who's in the group") : null,
       h("div", { class: "sheet-actions" }, closeBtn(), t > ch.end ? h("button", { class: "btn blaze", type: "button", onclick: openCreate }, "New challenge") : null),

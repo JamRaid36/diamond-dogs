@@ -351,9 +351,53 @@
     if (!isDate(start) || !isDate(end)) return { error: "Pick both dates." };
     if (end < start) return { error: "End on or after the start date." };
     if (daysBetween(start, end) > 365) return { error: "Keep it to a year or less." };
+    var patch = { start: start, end: end };
     var goals = {};
     if (start !== ch.start) goalList(ch).forEach(function (g) { if (g.addedOn === ch.start || g.addedOn < start) goals[g.id] = { addedOn: start }; });
-    return { patch: { start: start, end: end, goals: goals } };
+    if (Object.keys(goals).length) patch.goals = goals; // an empty map would REPLACE the goals in Firestore
+    return { patch: patch };
+  }
+
+  // Firestore merge writes an empty map as-is, wiping what was there. Drop empty maps before any merge write.
+  function pruneEmpty(obj) {
+    var out = {};
+    Object.keys(obj || {}).forEach(function (k) {
+      var v = obj[k];
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        var inner = pruneEmpty(v);
+        if (Object.keys(inner).length) out[k] = inner;
+      } else out[k] = v;
+    });
+    return out;
+  }
+
+  // Goal ids that players have ticks for but the challenge no longer lists (e.g. after a bad write). Newest tick last.
+  function orphanGoals(players, ch) {
+    var known = (ch && ch.goals) || {};
+    var found = {};
+    Object.keys(players || {}).forEach(function (uid) {
+      var days = (players[uid] && players[uid].days) || {};
+      Object.keys(days).forEach(function (d) {
+        Object.keys(days[d] || {}).forEach(function (id) {
+          if (known[id]) return;
+          var f = found[id] || (found[id] = { id: id, days: [], ticks: 0 });
+          if (f.days.indexOf(d) < 0) f.days.push(d);
+          if (days[d][id] === true) f.ticks++;
+        });
+      });
+    });
+    return Object.keys(found).sort(function (a, b) { return a.localeCompare(b, "en", { numeric: true }); }).map(function (id) { found[id].days.sort(); return found[id]; });
+  }
+
+  // Patch restoring orphaned goals under their original ids, so existing ticks attach again.
+  function recoverGoalsPatch(ch, items) {
+    var goals = {}, order = goalList(ch).reduce(function (m, g) { return Math.max(m, g.order || 0); }, 0);
+    for (var i = 0; i < items.length; i++) {
+      var t = cleanText(items[i].text);
+      if (!t) return { error: "Name every goal before recovering." };
+      goals[items[i].id] = { text: t, addedOn: ch.start, closedOn: null, order: ++order, perWeek: cleanPerWeek(items[i].perWeek) };
+    }
+    return { patch: { goals: goals } };
   }
 
   // Owner correction of anyone's tick: any day inside the challenge, no edit window.
@@ -399,7 +443,7 @@
     pacificDate: pacificDate, pacificHour: pacificHour, addDays: addDays, daysBetween: daysBetween, isDate: isDate,
     inChallenge: inChallenge, goalList: goalList, activeGoals: activeGoals, isLocked: isLocked, isDone: isDone,
     dayScore: dayScore, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
-    catchUpOpen: catchUpOpen, ownerTickPatch: ownerTickPatch, datesPatch: datesPatch, canMoveStart: canMoveStart, moveStartPatch: moveStartPatch, catchUpClosesMs: catchUpClosesMs, editableDates: editableDates, MAX_BACKDATE: MAX_BACKDATE,
+    catchUpOpen: catchUpOpen, pruneEmpty: pruneEmpty, orphanGoals: orphanGoals, recoverGoalsPatch: recoverGoalsPatch, ownerTickPatch: ownerTickPatch, datesPatch: datesPatch, canMoveStart: canMoveStart, moveStartPatch: moveStartPatch, catchUpClosesMs: catchUpClosesMs, editableDates: editableDates, MAX_BACKDATE: MAX_BACKDATE,
     resultsDue: resultsDue, resultId: resultId, buildResult: buildResult, joinedBy: joinedBy,
     currentChallenge: currentChallenge, cleanText: cleanText, validateChallenge: validateChallenge,
     addGoalPatch: addGoalPatch, cadencePatch: cadencePatch, cadenceLabel: cadenceLabel, isWeekly: isWeekly,
