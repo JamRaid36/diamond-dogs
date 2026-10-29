@@ -3,6 +3,7 @@
  * Data shapes (Firestore):
  *   challenges/<id>  {name, start, end, createdBy, createdAt,
  *                     goals: {<goalId>: {text, addedOn, closedOn|null, order, perWeek|null}}}
+ *                     pot: {buyIn, strikes, paid: {<uid>: bool}}   play money: misses are strikes, the survivors split it
  *                     skips: {<YYYY-MM-DD>: bool}   days off: nothing counts, streaks jump them, weekly targets drop a day
  *                     perWeek null = a daily goal (every day counts); 1-7 = "N days a week", weeks run Mon-Sun.
  *   players/<uid>    {name, joinedAt, targets: {<goalId>: text}, days: {<YYYY-MM-DD>: {<goalId>: bool}}}
@@ -394,6 +395,86 @@
     return { patch: patch };
   }
 
+  // ---------- the pot ----------
+  // A day is on a player's record from the day they joined, plus the catch-up days if they joined while catch-up was open.
+  function onRecord(player, ch, date) {
+    if (joinedBy(player, date)) return true;
+    return !!(ch.createdAt && date < pacificDate(ch.createdAt) && ch.start < pacificDate(ch.createdAt) && player.joinedAt < catchUpClosesMs(ch));
+  }
+
+  // A strike: a locked day without every daily goal done, or a weekly goal missed when its week locks.
+  // Days off, days before a player joined, and days still open never count.
+  function strikesFor(player, ch, nowMs) {
+    var out = [];
+    if (!ch) return out;
+    for (var d = ch.start; d <= ch.end && isFinal(d, nowMs, ch); d = addDays(d, 1)) {
+      if (!onRecord(player, ch, d) || isSkip(ch, d) || !dailyGoals(ch, d).length) continue;
+      if (!dayScore(player, ch, d).perfect) out.push({ kind: "day", date: d });
+    }
+    // Weekly goals are judged on the player's own record: only days they were in, and the target can't
+    // exceed the days the goal was active for them. Each day off in the week takes one off the target.
+    for (var ws = weekStart(ch.start); ws <= ch.end; ws = addDays(ws, 7)) {
+      var last = addDays(ws, 6) < ch.end ? addDays(ws, 6) : ch.end;
+      if (!isFinal(last, nowMs, ch)) continue;
+      var off = 0, tally = {};
+      for (var x = ws > ch.start ? ws : ch.start; x <= last; x = addDays(x, 1)) {
+        if (isSkip(ch, x)) { off++; continue; }
+        if (!onRecord(player, ch, x)) continue;
+        activeGoals(ch, x).filter(isWeekly).forEach(function (g) {
+          var t = tally[g.id] || (tally[g.id] = { g: g, days: 0, done: 0 });
+          t.days++;
+          if (isDone(player, x, g.id)) t.done++;
+        });
+      }
+      Object.keys(tally).forEach(function (id) {
+        var t = tally[id];
+        var need = Math.min(t.g.perWeek - off, t.days);
+        if (need > 0 && t.done < need) out.push({ kind: "week", date: last, goalId: id });
+      });
+    }
+    return out;
+  }
+
+  function cleanMoney(v) {
+    var n = Math.round(Number(v));
+    return n >= 0 && n <= 10000 ? n : null;
+  }
+
+  // Everyone on the board is in for the buy-in. Out at `strikes` strikes. Survivors split the pot evenly;
+  // if nobody survives, everyone gets their buy-in back.
+  function potStatus(players, ch, nowMs) {
+    var pot = ch && ch.pot;
+    if (!pot || !(pot.buyIn > 0)) return null;
+    var limit = pot.strikes >= 1 ? pot.strikes : 3;
+    // Entrants: everyone on the board who joined by the last day. Joining after it's over doesn't buy a share.
+    var rows = Object.keys(players || {}).filter(function (uid) { return joinedBy(players[uid], ch.end); }).map(function (uid) {
+      var n = strikesFor(players[uid], ch, nowMs).length;
+      return { uid: uid, name: (players[uid] && players[uid].name) || "Player", strikes: n, out: n >= limit, paid: !!(pot.paid && pot.paid[uid] === true) };
+    }).sort(function (a, b) { return a.strikes - b.strikes || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0); });
+    var alive = rows.filter(function (r) { return !r.out; }).length;
+    var total = pot.buyIn * rows.length;
+    return {
+      buyIn: pot.buyIn, limit: limit, pot: total, rows: rows, alive: alive,
+      share: alive ? Math.floor((total / alive) * 100) / 100 : pot.buyIn, refund: alive === 0,
+      paid: rows.filter(function (r) { return r.paid; }).length, final: isFinal(ch.end, nowMs, ch),
+    };
+  }
+
+  // Owner only: set the buy-in and the strike limit. buyIn 0 turns the pot off.
+  function potPatch(buyIn, strikes) {
+    var b = cleanMoney(buyIn);
+    if (b === null) return { error: "Buy-in is a whole-dollar amount, 0 to 10,000." };
+    var k = Math.round(Number(strikes));
+    if (!(k >= 1 && k <= 20)) return { error: "Strikes: 1 to 20." };
+    return { patch: { pot: { buyIn: b, strikes: k } } };
+  }
+
+  function paidPatch(uid, paid) {
+    var m = {};
+    m[uid] = !!paid;
+    return { patch: { pot: { paid: m } } };
+  }
+
   // Owner only: rename the challenge.
   function renamePatch(name) {
     var t = cleanText(name).slice(0, 60);
@@ -503,6 +584,7 @@
     pacificDate: pacificDate, pacificHour: pacificHour, addDays: addDays, daysBetween: daysBetween, isDate: isDate,
     inChallenge: inChallenge, goalList: goalList, activeGoals: activeGoals, isLocked: isLocked, isDone: isDone,
     dayScore: dayScore, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
+    strikesFor: strikesFor, potStatus: potStatus, potPatch: potPatch, paidPatch: paidPatch,
     isSkip: isSkip, skipDates: skipDates, skipPatch: skipPatch, renamePatch: renamePatch, endPlan: endPlan, handoffPlan: handoffPlan,
     catchUpOpen: catchUpOpen, pruneEmpty: pruneEmpty, orphanGoals: orphanGoals, recoverGoalsPatch: recoverGoalsPatch, ownerTickPatch: ownerTickPatch, datesPatch: datesPatch, canMoveStart: canMoveStart, moveStartPatch: moveStartPatch, catchUpClosesMs: catchUpClosesMs, editableDates: editableDates, MAX_BACKDATE: MAX_BACKDATE,
     resultsDue: resultsDue, resultId: resultId, buildResult: buildResult, joinedBy: joinedBy,

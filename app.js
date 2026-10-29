@@ -98,6 +98,7 @@ function renderInner() {
     demoBanner(),
     h("img", { class: "brand-hero", src: "logo-hero.webp", alt: "Alpha Pack", width: "720", height: "582" }),
     t < ch.start ? renderUpcoming(ch) : t > ch.end ? renderFinished(ch) : renderYou(ch),
+    renderPot(ch),
     renderPack(ch),
     renderChat(),
     renderGrid(ch),
@@ -314,6 +315,27 @@ function renderFinished(ch) {
     h("div", { class: "sheet-actions" }, h("button", { class: "btn blaze", type: "button", onclick: openCreate }, "Start the next challenge")));
 }
 
+const money = (n) => "$" + (Number.isInteger(n) ? String(n) : n.toFixed(2));
+
+// The pot: play money. Everyone on the board is in for the buy-in; strikes knock people out; survivors split it.
+function renderPot(ch) {
+  const st = L.potStatus(state.players, ch, now());
+  if (!st) return null;
+  const strikeDots = (n) => h("span", { class: "strikes", "aria-label": `${n} of ${st.limit} strikes` }, `${n}/${st.limit}`,
+    ...Array.from({ length: st.limit }, (_, i) => h("i", { class: i < n ? "on" : "" })));
+  const each = st.final
+    ? (st.refund ? ["Nobody made it", h("small", {}, `Everyone gets their ${money(st.buyIn)} back`)] : [`${money(st.share)} each`, h("small", {}, `${st.alive} made it to the end`)])
+    : (st.refund ? ["Everyone's out", h("small", {}, `If it ended now, everyone gets ${money(st.buyIn)} back`)] : [`${money(st.share)} each`, h("small", {}, `if it ended now · ${st.alive} still in`)]);
+  return h("section", { "aria-labelledby": "potH" },
+    h("div", { class: "sec-head" }, h("h2", { id: "potH" }, st.final ? "The Pot · final" : "The Pot"), h("span", { class: "note" }, `${money(st.buyIn)} each · out at ${st.limit} strikes`)),
+    h("div", { class: "pot" },
+      h("div", { class: "pot-top" }, h("div", { class: "pot-amt" }, money(st.pot), h("small", {}, `${st.paid} of ${st.rows.length} paid`)), h("div", { class: "pot-each" }, ...each)),
+      h("ol", { class: "pot-rows" }, st.rows.map((r) => h("li", { class: r.out ? "out" : null },
+        h("span", {}, h("b", {}, r.uid === state.user.uid ? "You" : r.name), r.paid ? h("small", { style: "color:var(--muted)" }, " · paid") : null),
+        r.out ? h("span", { class: "out-chip" }, "OUT") : strikeDots(r.strikes)))),
+      h("p", { class: "seg-note" }, "A strike is a day without every daily goal done, or a weekly goal missed when its week ends. A day counts once it locks at noon the next day. Days off never count. Play money: settle up in person.")));
+}
+
 function renderPack(ch) {
   const t = today();
   const date = L.inChallenge(ch, t) ? t : t > ch.end ? ch.end : ch.start;
@@ -327,11 +349,12 @@ function renderPack(ch) {
     const isMe = uid === state.user.uid;
     const ps = L.perfectStreak(p, ch, date);
     const off = L.isSkip(ch, date);
+    const potRow = L.potStatus(state.players, ch, now())?.rows.find((r) => r.uid === uid);
     const detailId = "tagd-" + uid.replace(/[^a-zA-Z0-9_-]/g, "");
     return h("article", { class: "tag" + (isMe ? " me" : "") },
       h("button", { class: "tag-btn", type: "button", "aria-expanded": String(open), "aria-controls": detailId, onclick: () => { open ? state.expanded.delete(uid) : state.expanded.add(uid); render(); } },
         h("div", { class: "tag-row" },
-          h("div", { class: "tag-name" }, h("b", {}, p.name || "Player"), h("span", {}, isMe ? "You" : off ? "Day off" : ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : s.hit ? `${s.of - s.hit} to go today` : "Nothing ticked yet today")),
+          h("div", { class: "tag-name" }, h("b", {}, p.name || "Player"), h("span", {}, potRow?.out ? (isMe ? "You · out of the pot" : "Out of the pot") : isMe ? "You" : off ? "Day off" : ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : s.hit ? `${s.of - s.hit} to go today` : "Nothing ticked yet today")),
           h("div", { class: "tag-score" }, off ? "Off" : `${s.hit}/${s.of}`, h("small", {}, "today"))),
         h("div", { class: "pips", "aria-hidden": "true" }, goals.map((g) => h("span", { class: "pip" + (L.isDone(p, date, g.id) ? " on" : "") })),
           weekly.map((g) => { const pr = L.weekProgress(p, ch, g, date); return h("span", { class: "wbar" + (pr.met ? " met" : "") }, h("i", { style: `width:${pr.need ? Math.min(100, Math.round(pr.done / pr.need * 100)) : 0}%` })); }))),
@@ -428,9 +451,9 @@ function ownerEditor(ch, uid, p) {
   const remove = h("button", { class: "mini-btn danger", type: "button", onclick: async () => {
     if (!sure) { state.confirmRemove = uid; render(); return; }
     state.confirmRemove = null;
-    try { await state.backend.deletePlayer(uid); toast(`${p.name || "They"} left the board. Remove their email in People too, or they can rejoin.`); }
+    try { await state.backend.deletePlayer(uid); toast(`${p.name || "They"} left the board${ch.pot?.buyIn > 0 ? " and the pot" : ""}. Remove their email in People too, or they can rejoin.`); }
     catch (e) { console.error(e); toast("That didn't save."); }
-  } }, sure ? `Tap again: delete ${p.name || "them"} and all their ticks` : "Take off the board");
+  } }, sure ? `Tap again: delete ${p.name || "them"}${ch.pot?.buyIn > 0 ? ", their ticks and their buy-in" : " and all their ticks"}` : "Take off the board");
   return h("div", { class: "owner-edit" }, h("span", { class: "tlabel" }, "Owner: fix their ticks"), sel,
     h("div", { class: "owner-ticks" }, L.activeGoals(ch, day).map((g) => {
       const on = L.isDone(p, day, g.id);
@@ -500,6 +523,7 @@ function ownerControls(ch) {
       } }, "Save"))),
     datesField(ch),
     daysOffField(ch),
+    potField(ch),
     end.error ? null : h("div", { class: "field" },
       h("button", { class: "mini-btn danger", type: "button", style: "min-height:44px", onclick: async () => {
         if (!sure) { state.confirmEnd = ch.id; openSettings(); return; }
@@ -510,6 +534,32 @@ function ownerControls(ch) {
         } catch (e) { console.error(e); toast("That didn't save."); }
       } }, sure ? (end.remove ? "Tap again to remove it" : "Tap again to end it tonight") : (end.remove ? "Cancel this challenge" : "End it early")),
       h("p", { class: "seg-note" }, end.remove ? "It hasn't started, so nothing is lost." : "Today is the last day. Every tick so far stays, and the final standings show tomorrow.")));
+}
+
+// Owner only: the pot. Buy-in 0 turns it off. Paid is a record of who settled up; the app never moves money.
+function potField(ch) {
+  const pot = ch.pot || {};
+  const buy = h("input", { id: "potBuyIn", type: "number", inputmode: "numeric", min: "0", max: "10000", step: "1", value: pot.buyIn ?? "", placeholder: "50", "aria-label": "Buy-in per person, dollars" });
+  const lim = h("select", { id: "potStrikes", class: "cad", "aria-label": "Out at how many strikes" },
+    Array.from({ length: 20 }, (_, i) => h("option", { value: String(i + 1) }, `Out at ${i + 1} strike${i ? "s" : ""}`)));
+  lim.value = String(pot.strikes || 3);
+  const ids = Object.keys(state.players || {}).sort((a, b) => (state.players[a].name || "").localeCompare(state.players[b].name || ""));
+  return h("div", { class: "field" }, h("label", { for: "potBuyIn" }, "The pot"),
+    h("div", { class: "row2" }, h("div", {}, h("label", { class: "tlabel", for: "potBuyIn" }, "Buy-in ($)"), buy), h("div", {}, h("label", { class: "tlabel", for: "potStrikes" }, "Strikes"), lim)),
+    h("button", { class: "mini-btn", type: "button", style: "min-height:44px;margin-top:8px", onclick: async () => {
+      const r = L.potPatch(buy.value === "" ? 0 : buy.value, lim.value);
+      if (r.error) return toast(r.error);
+      try { await state.backend.mergeChallenge(ch.id, r.patch); toast(r.patch.pot.buyIn ? `Pot on: ${money(r.patch.pot.buyIn)} each, out at ${r.patch.pot.strikes}.` : "Pot off."); }
+      catch (e) { console.error(e); toast("That didn't save."); }
+    } }, "Save pot"),
+    pot.buyIn > 0 ? h("ul", { class: "off-list" }, ids.map((uid) => {
+      const paid = pot.paid?.[uid] === true;
+      return h("li", {}, h("span", {}, state.players[uid].name || "Player"),
+        h("button", { class: "mini-btn" + (paid ? " on" : ""), type: "button", "aria-pressed": String(paid), style: "min-height:44px", onclick: async () => {
+          try { await state.backend.mergeChallenge(ch.id, L.paidPatch(uid, !paid).patch); } catch (e) { console.error(e); toast("That didn't save."); }
+        } }, paid ? "✓ Paid" : "Mark paid"));
+    })) : null,
+    h("p", { class: "seg-note" }, "Play money. Everyone on the board is in. Survivors split the pot evenly at the end; if nobody makes it, everyone gets their buy-in back. 0 turns it off."));
 }
 
 // Owner only: days off. Nothing counts on them for anyone; streaks jump them; weekly goals need one day fewer.

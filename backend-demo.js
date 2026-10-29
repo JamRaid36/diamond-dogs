@@ -29,6 +29,7 @@ function seed(scenario, now) {
   };
   if (scenario === "showcase") { // marketing screenshots: Jason's real season-1 goals, sample ticks
     ch.name = "Alpha Pack Season 1"; ch.start = d(-2); ch.end = d(4); ch.createdAt = now;
+    ch.pot = { buyIn: 50, strikes: 3, paid: { me: true, sam: true } };
     ch.goals = {
       g1: { text: "Protein 130g", addedOn: d(-2), closedOn: null, order: 1, perWeek: null },
       g2: { text: "Under 2,000 calories", addedOn: d(-2), closedOn: null, order: 2, perWeek: 5 },
@@ -36,6 +37,7 @@ function seed(scenario, now) {
       g4: { text: "Resistance Training", addedOn: d(-2), closedOn: null, order: 4, perWeek: 2 },
     };
   }
+  if (scenario === "pot") ch.pot = { buyIn: 50, strikes: 2, paid: {} }; // riley has missed days: out at 2
   if (scenario === "lostgoals") { ch.start = d(-2); ch.createdAt = now; ch.goals = {}; }
   if (scenario === "today") { ch.start = today; ch.createdAt = now; Object.values(ch.goals).forEach((g) => { g.addedOn = today; }); }
   if (scenario === "catchup") { ch.start = d(-2); ch.createdAt = now; Object.values(ch.goals).forEach((g) => { g.addedOn = d(-2); }); }
