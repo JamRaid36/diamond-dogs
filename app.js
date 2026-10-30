@@ -1308,14 +1308,16 @@ const seen = (k) => { try { return localStorage.getItem("ap." + k) === "1"; } ca
 const markSeen = (k) => { try { localStorage.setItem("ap." + k, "1"); } catch { /* private mode: it shows again, harmless */ } };
 
 // Steps for the browser they're actually in (Jason/Tabitha 2026-10-29): no "open it in Safari" step, since the link already
-// opened somewhere, and Chrome on iPhone can add to the home screen too (iOS 16.4+). iOS 26 Safari hides Share behind the ⋯ button.
+// opened somewhere, and Chrome on iPhone can add to the home screen too (iOS 16.4+). iOS 26+ Safari: Share sits in the bottom toolbar
+// or behind the address bar's menu button, depending on the tab layout; the button moved (Jason 2026-10-30: no ⋯, it's on
+// the left), so the steps name Share, not an icon spot. Chrome wording follows Google's help (answer 9658361, read 10-30).
 const ADD = "Open Alpha Pack from your home screen from now on.";
 const STEPS = {
-  safari26: ["Tap the ⋯ button (three dots), bottom right, next to the address bar.", "Tap Share.", "Scroll down and tap “Add to Home Screen” (tap “View More” first if you don't see it).", "Leave “Open as Web App” on and tap “Add”."],
+  safari26: ["Tap Share (a square with an arrow pointing up). Don't see it? Tap the menu button in the address bar first (on the left on newer iPhones), then Share.", "Scroll down and tap “Add to Home Screen”. Not there? Tap “View More”.", "Leave “Open as Web App” on and tap “Add”."],
   safari: ["Tap the Share button at the bottom (the square with the arrow pointing up).", "Scroll down and tap “Add to Home Screen”, then “Add”."],
-  crios: ["Tap the Share button at the top, next to the address bar (or the ⋯ menu, then Share).", "Tap “Add to Home Screen”, then “Add”."],
+  crios: ["Tap Share, on the right of the address bar.", "Tap “Add to Home Screen”, then “Add”."],
   iosOther: ["Tap your browser's Share button (look in its ⋯ or ☰ menu if you don't see it).", "Tap “Add to Home Screen”, then “Add”."],
-  chrome: ["Tap the ⋮ menu, top right.", "Tap “Add to Home screen” (or “Install app”), then “Install”."],
+  chrome: ["Tap the ⋮ menu, on the right of the address bar.", "Tap “Install and create shortcut” (older Chrome: “Add to Home screen”), then “Install”."],
   samsung: ["Tap the ☰ menu, bottom right.", "Tap “Add page to”, then “Home screen”."],
   androidOther: ["Open your browser's menu (⋮ or ☰).", "Tap “Add to Home screen” (or “Install”)."],
 };
