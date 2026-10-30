@@ -1309,11 +1309,25 @@ function welcomeCard() {
 
 function quickLinks() {
   const owner = !!state.ms?.owner;
-  return h("nav", { class: "quick" + (owner ? " three" : ""), "aria-label": "Rules, help and invite" },
+  // Home screen steps any time (Jason 2026-10-29), but only in a phone browser: opened from the home screen, it's done.
+  const homePill = !standalone() && phone() !== "other";
+  const pills = [
     h("button", { class: "quick-btn", type: "button", onclick: () => openRules() }, h("span", { "aria-hidden": "true" }, "\u2696"), "Rules"),
     h("button", { class: "quick-btn", type: "button", onclick: () => openHelp() }, h("span", { "aria-hidden": "true" }, "?"), owner ? "Help" : "How it works"),
     // Owner: the invite lives behind a pill (Jason 2026-10-29), not a big card on the main screen.
-    owner ? h("button", { class: "quick-btn", type: "button", onclick: openInvite }, h("span", { "aria-hidden": "true" }, "+"), "Invite") : null);
+    owner ? h("button", { class: "quick-btn", type: "button", onclick: openInvite }, h("span", { "aria-hidden": "true" }, "+"), "Invite") : null,
+    homePill ? h("button", { class: "quick-btn", type: "button", onclick: openHomeSteps }, h("span", { "aria-hidden": "true" }, "\u2302"), "Home screen") : null,
+  ].filter(Boolean);
+  return h("nav", { class: "quick" + (pills.length === 3 ? " three" : ""), "aria-label": "Rules, help and more" }, ...pills);
+}
+function openHomeSteps() {
+  state._sheetIs = "home";
+  openSheet(() => [
+    h("h2", { id: "sheetTitle" }, "Put it on your home screen"),
+    h("p", { class: "sub" }, "It opens like an app, full screen, and stays signed in."),
+    stepsList(browserKey(), ADD),
+    h("div", { class: "sheet-actions" }, closeBtn()),
+  ]);
 }
 function openInvite() {
   state._sheetIs = "invite";
