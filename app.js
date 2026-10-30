@@ -1030,6 +1030,7 @@ function renderChat() {
     if (!text) return;
     state.chatDraft = "";
     input.value = "";
+    state.chatToBottom = true; // your own post: show it
     try { await state.backend.postMessage({ uid: state.user.uid, text, at: now() }); }
     catch (err) { console.error(err); state.chatDraft = text; render(); toast("That didn't post. Check your connection and try again."); }
   };
@@ -1046,6 +1047,17 @@ function renderChat() {
         } }, state.confirmDel === m.id ? "Delete?" : "×") : null),
       h("p", { class: "msg-text" }, m.text));
   }));
+  // The list scrolls inside its box, oldest first. Every render replaces it, which would reset it to the top (the
+  // oldest) and hide the newest (Jason 2026-10-29). Stay at the bottom if you were there (or it's the first look);
+  // leave you where you were if you'd scrolled up to read.
+  const old = document.querySelector(".chat-list");
+  const stick = !old || state.chatToBottom || old.scrollHeight - old.scrollTop - old.clientHeight < 40;
+  const was = old ? old.scrollTop : 0;
+  queueMicrotask(() => {
+    if (!list.isConnected) return;
+    list.scrollTop = stick ? list.scrollHeight : was;
+    if (stick) state.chatToBottom = false;
+  });
   return h("section", { "aria-labelledby": "chatH" },
     h("div", { class: "sec-head" }, h("h2", { id: "chatH" }, "Trash Talk"), h("span", { class: "note" }, "Everyone in the group sees this")),
     h("div", { class: "chat-card" },
