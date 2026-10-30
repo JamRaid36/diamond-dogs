@@ -116,6 +116,7 @@ function renderInner() {
     h("img", { class: "brand-hero small", src: "logo-hero.webp", alt: "Alpha Pack", width: "720", height: "582" }),
     t < ch.start && !state.chId ? todoCard(ch) : null,
     t >= ch.start && !state.chId ? voteCard(ch) : null,
+    chatNew(),
     welcomeCard(),
     installCard(),
     quickLinks(),
@@ -1050,8 +1051,41 @@ function fmtWhen(ms) {
   return d.toLocaleString("en-US", sameDay ? { hour: "numeric", minute: "2-digit" } : { weekday: "short", hour: "numeric", minute: "2-digit" });
 }
 
+// Unread (Jason 2026-10-30, "dot now, push later"): what others posted since this phone last had Trash Talk on screen.
+// Kept per phone in localStorage, so nothing new in Firestore or the rules. First look ever: everything counts as read,
+// so a new player doesn't open on "47 new". Private mode can't store it: no dot, which is harmless.
+const seenKey = () => "ap.chatSeen." + (state.user?.uid || "");
+function chatSeen() {
+  try { const v = localStorage.getItem(seenKey()); return v === null ? null : +v; } catch { return Infinity; }
+}
+function markChatSeen(at) {
+  if (!(at > (chatSeen() ?? 0))) return;
+  try { localStorage.setItem(seenKey(), String(at)); } catch { /* private mode */ }
+}
+function chatUnread() {
+  if (!state._chatIn) return [];
+  const msgs = Object.values(state.chat || {});
+  const latest = Math.max(0, ...msgs.map((m) => m.at || 0));
+  const seen = chatSeen();
+  if (seen === null) { markChatSeen(latest || 1); return []; }
+  return msgs.filter((m) => m.uid !== state.user.uid && m.at > seen).sort((a, b) => a.at - b.at);
+}
+function chatNew() {
+  const un = chatUnread();
+  if (!un.length) return null;
+  const who = [...new Set(un.map((m) => state.players?.[m.uid]?.name || "Player"))];
+  return h("button", { class: "chat-new", type: "button", onclick: () => document.getElementById("chatH")?.scrollIntoView({ behavior: "smooth", block: "start" }) },
+    h("span", { class: "chat-dot" }, String(un.length)),
+    h("span", {}, h("b", {}, `${un.length} new in Trash Talk`), h("small", {}, who.length > 3 ? `${who.slice(0, 3).join(", ")} and more` : who.join(", "))),
+    h("span", { class: "next-go", "aria-hidden": "true" }, "›"));
+}
+
 function renderChat() {
   const msgs = Object.entries(state.chat || {}).map(([id, m]) => Object.assign({ id }, m)).sort((a, b) => a.at - b.at).slice(-60);
+  const seenAt = chatSeen() ?? Infinity;
+  const canEdit = msgs.some((m) => m.uid === state.user.uid) || !!state.ms?.owner;
+  if (!canEdit) state.chatEdit = false;
+  const firstNew = msgs.find((m) => m.uid !== state.user.uid && m.at > seenAt);
   const input = h("input", { id: "chatInput", maxlength: String(L.MAX_POST), autocomplete: "off", enterkeyhint: "send", placeholder: "Say something to the pack", value: state.chatDraft, "aria-label": "Message",
     oninput: (e) => { state.chatDraft = e.target.value; } });
   const send = async (e) => {
@@ -1064,11 +1098,11 @@ function renderChat() {
     try { await state.backend.postMessage({ uid: state.user.uid, text, at: now() }); }
     catch (err) { console.error(err); state.chatDraft = text; render(); toast("That didn't post. Check your connection and try again."); }
   };
-  const list = h("ol", { class: "chat-list", "aria-live": "polite" }, msgs.map((m) => {
+  const list = h("ol", { class: "chat-list", "aria-live": "polite" }, msgs.flatMap((m) => {
     const mine = m.uid === state.user.uid;
-    const canDelete = mine || state.ms?.owner;
+    const canDelete = state.chatEdit && (mine || state.ms?.owner); // the × only shows in Edit mode (Jason 2026-10-30)
     const name = state.players?.[m.uid]?.name || "Player";
-    return h("li", { class: "msg" + (mine ? " mine" : "") },
+    const li = h("li", { class: "msg" + (mine ? " mine" : "") },
       h("div", { class: "msg-meta" }, h("b", {}, mine ? "You" : name), h("span", {}, fmtWhen(m.at)),
         canDelete ? h("button", { class: "msg-del", type: "button", "aria-label": state.confirmDel === m.id ? "Tap again to delete" : "Delete message", onclick: async () => {
           if (state.confirmDel !== m.id) { state.confirmDel = m.id; render(); return; }
@@ -1076,6 +1110,7 @@ function renderChat() {
           try { await state.backend.deleteMessage(m.id); } catch (err) { console.error(err); toast("That didn't delete."); }
         } }, state.confirmDel === m.id ? "Delete?" : "×") : null),
       h("p", { class: "msg-text" }, m.text));
+    return m === firstNew ? [h("li", { class: "new-line", "aria-label": "New messages below" }, "New"), li] : [li];
   }));
   // The list scrolls inside its box, oldest first. Every render replaces it, which would reset it to the top (the
   // oldest) and hide the newest (Jason 2026-10-29). Stay at the bottom if you were there (or it's the first look);
@@ -1088,8 +1123,23 @@ function renderChat() {
     list.scrollTop = stick ? list.scrollHeight : was;
     if (stick) state.chatToBottom = false;
   });
+  // Read = the board was on screen. The "New" line stays until the next render, so you can see where you left off.
+  const latest = msgs.length ? msgs[msgs.length - 1].at : 0;
+  if (latest && typeof IntersectionObserver === "function") {
+    state._chatIO?.disconnect(); // one watcher at a time; every render brings a new list
+    const io = state._chatIO = new IntersectionObserver((es) => {
+      if (!es.some((e) => e.isIntersecting)) return;
+      io.disconnect();
+      const had = chatUnread().length;
+      markChatSeen(latest);
+      if (had) document.querySelector(".chat-new")?.remove();
+    }, { threshold: 0.5 });
+    queueMicrotask(() => { if (list.isConnected) io.observe(list); });
+  }
   return h("section", { "aria-labelledby": "chatH" },
-    h("div", { class: "sec-head" }, h("h2", { id: "chatH" }, "Trash Talk"), h("span", { class: "note" }, "Everyone in the group sees this")),
+    h("div", { class: "sec-head" }, h("h2", { id: "chatH" }, "Trash Talk"),
+      h("span", { class: "head-end" }, h("span", { class: "note" }, "Everyone in the group sees this"),
+        canEdit ? h("button", { class: "link-btn chat-edit", type: "button", "aria-pressed": String(!!state.chatEdit), onclick: () => { state.chatEdit = !state.chatEdit; state.confirmDel = null; render(); } }, state.chatEdit ? "Done" : "Edit") : null)),
     h("div", { class: "chat-card" },
       msgs.length ? list : h("p", { class: "empty" }, h("b", {}, "Quiet in here. "), "Somebody start it."),
       h("form", { class: "chat-form", onsubmit: send }, input, h("button", { class: "btn blaze", type: "submit" }, "Send"))));
@@ -1650,6 +1700,7 @@ function subscribe() {
   for (const coll of ["players", "challenges", "results", "members", "chat"]) {
     state.unsubs.push(state.backend.watch(coll, (data) => {
       state[coll] = data;
+      if (coll === "chat") state._chatIn = true; // unread waits for the first real read, not the empty start
       render();
       if (state._sheetIs === "settings") state._sheetRebuild?.();
       postDueResults();
