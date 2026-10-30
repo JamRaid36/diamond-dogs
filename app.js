@@ -172,7 +172,7 @@ function renderInstallGate() {
   gate(null, "Step 1 of 2: put Alpha Pack on your home screen. It opens like an app, and you'll sign in there.",
     inAppBrowser() ? h("p", { class: "callout" }, h("b", {}, "First, open this in " + (kind === "ios" ? "Safari" : "Chrome") + ". "), "You're inside another app's browser, which can't add to the home screen. Tap the ⋯ or share menu and choose \u201cOpen in " + (kind === "ios" ? "Safari" : "Chrome") + "\u201d.") : null,
     h("div", { class: "callout install-gate" }, h("h2", {}, kind === "ios" ? "On your iPhone" : "On your Android"),
-      h("ol", { class: "steps" }, STEPS[kind].slice(0, 3).map((x) => h("li", {}, x))),
+      stepsList(browserKey()),
       h("p", { class: "ig-next" }, h("b", {}, "Step 2: "), "close this, then open Alpha Pack from your home screen and sign in with Google.")),
     h("button", { class: "link-btn", type: "button", onclick: () => { markSeen("installSkip"); render(); } }, "Skip for now (I'll add it later)"));
 }
@@ -1255,11 +1255,30 @@ const standalone = () => window.matchMedia?.("(display-mode: standalone)").match
 const seen = (k) => { try { return localStorage.getItem("ap." + k) === "1"; } catch { return false; } };
 const markSeen = (k) => { try { localStorage.setItem("ap." + k, "1"); } catch { /* private mode: it shows again, harmless */ } };
 
+// Steps for the browser they're actually in (Jason/Tabitha 2026-10-29): no "open it in Safari" step, since the link already
+// opened somewhere, and Chrome on iPhone can add to the home screen too (iOS 16.4+). iOS 26 Safari hides Share behind the ⋯ button.
+const ADD = "Open Alpha Pack from your home screen from now on.";
 const STEPS = {
-  ios: ["Open the link in Safari.", "Tap the Share button (the square with the arrow pointing up).", "Scroll down and tap “Add to Home Screen”, then “Add”.", "Open Alpha Pack from your home screen from now on."],
-  android: ["Open the link in Chrome.", "Tap the ⋮ menu, top right.", "Tap “Add to Home screen” (or “Install app”), then “Install”.", "Open Alpha Pack from your home screen from now on."],
+  safari26: ["Tap the ⋯ button (three dots), bottom right, next to the address bar.", "Tap Share.", "Scroll down and tap “Add to Home Screen” (tap “View More” first if you don't see it).", "Leave “Open as Web App” on and tap “Add”."],
+  safari: ["Tap the Share button at the bottom (the square with the arrow pointing up).", "Scroll down and tap “Add to Home Screen”, then “Add”."],
+  crios: ["Tap the Share button at the top, next to the address bar (or the ⋯ menu, then Share).", "Tap “Add to Home Screen”, then “Add”."],
+  iosOther: ["Tap your browser's Share button (look in its ⋯ or ☰ menu if you don't see it).", "Tap “Add to Home Screen”, then “Add”."],
+  chrome: ["Tap the ⋮ menu, top right.", "Tap “Add to Home screen” (or “Install app”), then “Install”."],
+  samsung: ["Tap the ☰ menu, bottom right.", "Tap “Add page to”, then “Home screen”."],
+  androidOther: ["Open your browser's menu (⋮ or ☰).", "Tap “Add to Home screen” (or “Install”)."],
 };
-function stepsList(kind) { return h("ol", { class: "steps" }, STEPS[kind].map((x) => h("li", {}, x))); }
+function browserKey() {
+  const ua = navigator.userAgent, kind = phone();
+  if (kind === "ios") {
+    if (/CriOS/.test(ua)) return "crios";
+    if (/FxiOS|EdgiOS|OPiOS|DuckDuckGo/.test(ua)) return "iosOther";
+    const v = +(ua.match(/Version\/(\d+)/) || [])[1];
+    return v >= 26 ? "safari26" : "safari";
+  }
+  if (kind === "android") return /SamsungBrowser/.test(ua) ? "samsung" : /Firefox|EdgA|OPR|DuckDuckGo/.test(ua) ? "androidOther" : "chrome";
+  return null;
+}
+function stepsList(key, extra) { return h("ol", { class: "steps" }, [...STEPS[key], ...(extra ? [extra] : [])].map((x) => h("li", {}, x))); }
 
 // Shown once per phone, in the browser only: an installed app never sees it.
 function installCard() {
@@ -1269,7 +1288,7 @@ function installCard() {
   return h("section", { class: "callout", "aria-labelledby": "instH" },
     h("h2", { id: "instH" }, "Put it on your home screen"),
     h("p", {}, "It opens like an app, full screen, one tap from your home screen."),
-    stepsList(kind),
+    stepsList(browserKey(), ADD),
     h("div", { class: "callout-actions" }, h("button", { class: "mini-btn", type: "button", onclick: () => { markSeen("installDone"); render(); } }, "Done, hide this")));
 }
 
@@ -1378,8 +1397,9 @@ function openHelp(open = null) {
     q("board", "What's the Daily Board?", p("Each day's final scores, posted once the day locks at noon. The top of the list is a live view of today.")),
     q("chat", "What's Trash Talk?", p("A group message board. Everyone in the group sees it. You can delete your own posts.")),
     q("home", "How do I put it on my home screen?",
-      h("p", {}, h("b", {}, "iPhone")), stepsList("ios"), h("p", {}, h("b", {}, "Android")), stepsList("android"),
-      kind !== "other" ? p(kind === "ios" ? "You're on an iPhone: use the first set." : "You're on Android: use the second set.") : null),
+      ...(kind !== "other" ? [p("On this phone:"), stepsList(browserKey(), ADD)]
+        : [h("p", {}, h("b", {}, "iPhone (Safari)")), stepsList("safari26", ADD), p("Older iPhones: the Share button is right at the bottom, no ⋯ first."),
+          h("p", {}, h("b", {}, "Android (Chrome)")), stepsList("chrome", ADD)])),
     q("signin", "It won't let me in.", p("Sign in with the same Google account the group owner added. If it still says you're not on the list, ask the owner to check your email under People in the group.")),
     h("div", { class: "sheet-actions" }, h("button", { class: "btn blaze", type: "button", onclick: () => openRules() }, "Read the rules"), closeBtn()),
   ]);
