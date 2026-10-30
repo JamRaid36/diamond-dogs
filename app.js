@@ -133,7 +133,7 @@ function renderInner() {
 }
 
 const DEV_SCENES = [["season1", "Season 1: you, the owner (send the invite)"], ["invited", "Season 1: a new player, from the invite"], ["active", "Mid-challenge (owner)"], ["goalcheck", "Before the start (owner)"], ["goalcheckm", "Before the start (player)"],
-  ["pardon", "Pardon vote"], ["treasurer", "Treasurer (owner view)"], ["treasurerm", "Treasurer (his view)"], ["over", "Finished, settle the pot"],
+  ["pardon", "Pardon vote"], ["pardonyes", "Pardon: time's up, pardoned (Riley's view)"], ["pardonno", "Pardon: time's up, tie, strike stands (Riley's view)"], ["treasurer", "Treasurer (owner view)"], ["treasurerm", "Treasurer (his view)"], ["over", "Finished, settle the pot"],
   ["member", "A player, not the owner"], ["empty", "Brand-new player"], ["signedout", "Signed out"]];
 function demoBanner() {
   if (window.DD_DEV) {

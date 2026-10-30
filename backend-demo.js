@@ -38,7 +38,7 @@ function seed(scenario, now) {
     };
   }
   if (scenario === "pot") ch.pot = { buyIn: 50, strikes: 2, paid: {} }; // riley has missed days: out at 2
-  if (scenario === "pardon") ch.pot = { buyIn: 100, strikes: 3, comeback: 50, paid: { me: true } }; // riley asks a pardon, sam voted yes
+  if (scenario === "pardon" || scenario === "pardonyes" || scenario === "pardonno") ch.pot = { buyIn: 100, strikes: 3, comeback: 50, paid: { me: true } }; // riley asks a pardon, sam voted yes
   if (scenario === "treasurer" || scenario === "treasurerm") ch.pot = { buyIn: 100, strikes: 3, treasurer: "sam", payHow: "Venmo https://venmo.com/u/sam-t", paid: { sam: true } }; // sam holds the money; you own the app
   if (scenario === "goalcheck" || scenario === "goalcheckm" || scenario === "invited" || scenario === "season1") { // upcoming, everyone sets their own: sam has 3, riley 1, you none
     ch.start = d(2); ch.end = d(23); ch.goals = {}; ch.minGoals = 3;
@@ -93,6 +93,14 @@ function seed(scenario, now) {
     store.players.riley.appeals = { [rs.pardon.key]: now - 17 * 3600000 }; // asked 17 hours ago: 31 left on the clock
     store.players.sam.pvotes = { [rs.pardon.key]: { y: true, at: now - 16 * 3600000 } };
   }
+  // The two ways a 48-hour clock ends, seen by Riley (who asked 50 hours ago). Time's up: the votes cast decide.
+  if (scenario === "pardonyes" || scenario === "pardonno") {
+    const st = L.potStatus(store.players, Object.assign({ id: "c1" }, ch), now);
+    const rs = st.rows.find((r) => r.uid === "riley").list[0];
+    store.players.riley.appeals = { [rs.pardon.key]: now - 50 * 3600000 };
+    store.players.sam.pvotes = { [rs.pardon.key]: { y: true, at: now - 40 * 3600000 } }; // 1 yes; you never voted
+    if (scenario === "pardonno") store.players.me.pvotes = { [rs.pardon.key]: { y: false, at: now - 30 * 3600000 } }; // 1 yes, 1 no: a tie
+  }
   if (scenario === "active" || scenario === "showcase" || scenario === "member") {
     const t0 = now - 3 * 3600000;
     const lines = scenario === "showcase"
@@ -115,6 +123,7 @@ export function createDemoBackend(scenario = "active", opts = {}) {
   const authListeners = new Set();
   let user = scenario === "signedout" ? null : { uid: scenario === "notmember" ? "stranger" : "me", email: scenario === "notmember" ? "stranger@example.com" : "you@example.com" };
   if (scenario === "member" || scenario === "goalcheckm" || scenario === "treasurerm") user = { uid: "sam", email: "sam@example.com" }; // a player who isn't the owner
+  if (scenario === "pardonyes" || scenario === "pardonno") user = { uid: "riley", email: "riley@example.com" }; // the one who asked
   // From the invite: signed out, on the list, never joined. Signing in is fake (no Google) and lands as a new player.
   const invited = scenario === "invited";
   if (invited) { user = null; store.members.emails.push("you.invited@example.com"); store.players.me.name = "Jay"; }
