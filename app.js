@@ -1411,11 +1411,14 @@ function openHelp(open = null) {
 function inviteText() {
   const c = current();
   const t = L.treasurerOf(c);
-  const pay = c?.pot?.buyIn > 0 ? `Buy-in is ${money(c.pot.buyIn)}` + (t ? `, to ${state.players?.[t]?.name || "the treasurer"}${c.pot.payHow ? ` (${c.pot.payHow})` : ""}.` : ".") : null;
+  const when = c?.start && c?.end ? ` ${fmtDay(c.start)} to ${fmtDay(c.end)}.` : "";
+  // Jason 2026-10-29: the old one said "this email" (it's a text, there is no email) and buried the order.
+  // Now: when, the one link to tap, home screen then sign in (the order the app enforces), and which Google account.
+  const pay = c?.pot?.buyIn > 0 ? `Buy-in is ${money(c.pot.buyIn)}.` + (t ? ` Pay ${state.players?.[t]?.name || "the treasurer"}${c.pot.payHow ? `: ${c.pot.payHow}` : "."}` : "") : null;
   return [
-    window.DD_DEV ? "You're in the Alpha Pack \u{1F43A}\u{1F4AA} (test version: sample players, nothing is saved)" : "You're in the Alpha Pack \u{1F43A}\u{1F4AA}",
-    appLink(),
-    "Sign in with Google using this email. The app walks you through the rest, even putting it on your home screen.",
+    (window.DD_DEV ? "You're in the Alpha Pack \u{1F43A}\u{1F4AA} (test version: sample players, nothing is saved)" : "You're in the Alpha Pack \u{1F43A}\u{1F4AA}") + when,
+    "Open this on your phone: " + appLink(),
+    "It shows you how to put it on your home screen. Then sign in with the Gmail you gave me.",
     pay,
   ].filter(Boolean).join("\n");
 }
