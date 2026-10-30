@@ -427,10 +427,15 @@ function potStrip(ch) {
   const st = L.potStatus(state.players, ch, now());
   if (!st) return null;
   const mine = st.rows.find((r) => r.uid === state.user.uid);
-  const you = !mine ? null : mine.out ? (mine.comeback ? "you: on a comeback" : "you: out") : `you: ${mine.strikes} of ${st.limit} strike${st.limit === 1 ? "" : "s"}`;
+  // Joseph 2026-10-29: "is there $300 in the pot legit?" Until everyone has paid, say so, and tell an unpaid player who to pay.
+  const unpaid = !st.settled && st.paid < st.rows.length;
+  const t = L.treasurerOf(ch);
+  const tName = t && t !== state.user.uid ? state.players?.[t]?.name : null; // the treasurer doesn't pay themselves a reminder
+  const you = !mine ? null : !st.settled && !mine.paid && t !== state.user.uid ? `you: not paid yet${tName ? ` · ${money(st.buyIn)} to ${tName}` : ""}`
+    : mine.out ? (mine.comeback ? "you: on a comeback" : "you: out") : `you: ${mine.strikes} of ${st.limit} strike${st.limit === 1 ? "" : "s"}`;
   const each = st.settled ? "settled" : st.refund ? "everyone's out" : `${money(st.share)} each${st.final ? "" : " if it ended now"}`;
   return h("button", { class: "pot-strip", type: "button", onclick: () => document.getElementById("potH")?.scrollIntoView({ behavior: "smooth", block: "start" }) },
-    h("span", { class: "ps-amt" }, money(st.pot)), h("span", { class: "ps-txt" }, `pot · ${each}`, you ? h("small", {}, you) : null), h("span", { class: "ps-go", "aria-hidden": "true" }, "›"));
+    h("span", { class: "ps-amt" }, money(st.pot)), h("span", { class: "ps-txt" }, unpaid ? `pot once everyone pays · ${st.paid} of ${st.rows.length} paid` : `pot · ${each}`, you ? h("small", {}, you) : null), h("span", { class: "ps-go", "aria-hidden": "true" }, "›"));
 }
 
 // The pot: play money. Everyone on the board is in for the buy-in; strikes knock people out; survivors split it.
