@@ -516,14 +516,16 @@ h3.gsec { margin: 18px 2px 8px; font: 900 15px/1 var(--display); letter-spacing:
 .so-goals li { all: unset; display: list-item; }
 .so-goals li small { display: inline; font: 400 13px/1.4 var(--body); color: var(--muted); margin: 0; }
 #sheetBody > h3.gsec { margin: 20px 2px 8px; font: 900 16px/1 var(--display); letter-spacing: 0.14em; color: var(--blaze); }
-details.owner-wrap { margin-top: 22px; border: 1px solid color-mix(in oklch, var(--blaze) 35%, var(--line)); border-radius: 16px; padding: 0 14px; }
-details.owner-wrap > summary { list-style: none; display: grid; gap: 4px; padding: 14px 0; cursor: pointer; min-height: 44px; }
-details.owner-wrap > summary::-webkit-details-marker { display: none; }
-details.owner-wrap > summary span { font: 900 15px/1 var(--display); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink); }
-details.owner-wrap > summary span::after { content: " ▾"; color: var(--muted); }
-details.owner-wrap[open] > summary span::after { content: " ▴"; }
-details.owner-wrap > summary small { font-size: 13px; color: var(--muted); }
+details.owner-wrap, details.so-wrap { margin-top: 22px; border: 1px solid color-mix(in oklch, var(--blaze) 35%, var(--line)); border-radius: 16px; padding: 0 14px; }
+details.owner-wrap > summary, details.so-wrap > summary { list-style: none; display: grid; gap: 4px; padding: 14px 0; cursor: pointer; min-height: 44px; }
+details.owner-wrap > summary::-webkit-details-marker, details.so-wrap > summary::-webkit-details-marker { display: none; }
+details.owner-wrap > summary span, details.so-wrap > summary span { font: 900 15px/1 var(--display); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink); }
+details.owner-wrap > summary span::after, details.so-wrap > summary span::after { content: " ▾"; color: var(--muted); }
+details.owner-wrap[open] > summary span::after, details.so-wrap[open] > summary span::after { content: " ▴"; }
+details.owner-wrap > summary small, details.so-wrap > summary small { font-size: 13px; color: var(--muted); }
 details.owner-wrap > .owner-block { border: 0; padding: 0 0 6px; }
+details.so-wrap { margin-top: 10px; }
+details.so-wrap > .so-list { padding-bottom: 14px; }
 
 /* web interface guidelines pass */
 button, a, summary, select, input, textarea { touch-action: manipulation; }

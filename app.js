@@ -496,6 +496,7 @@ function renderSignoff(ch) {
   const owner = !!state.ms?.owner;
   const ids = Object.keys(state.players || {}).sort((a, b) => (a === uid ? -1 : b === uid ? 1 : (state.players[a].name || "").localeCompare(state.players[b].name || "")));
   const myVotes = me()?.votes || {};
+  let others = 0, okOthers = 0, needMe = 0;
   const rows = ids.map((pid) => {
     const p = state.players[pid];
     const so = L.signoffFor(state.players, ch, pid);
@@ -505,6 +506,7 @@ function renderSignoff(ch) {
       : so.approved ? h("span", { class: "pd-state ok" }, so.byOwner ? "✓ Approved by the owner" : `✓ Approved · ${so.yes} of ${so.need} yes`)
       : h("span", { class: "pd-state" }, `Waiting · ${so.yes} of ${so.need} yes${so.no ? ` · ${so.no} no` : ""}`);
     const v = myVotes[so.key];
+    if (!isMe) { others++; if (so.approved) okOthers++; if (so.enough && typeof v !== "boolean") needMe++; }  // same rule as the checklist's vote line
     const cast = (yes) => async () => {
       try { await state.backend.mergePlayer(uid, L.signoffVotePatch(so.key, yes).patch); toast(yes ? `You approved ${p.name}'s goals.` : `You said no to ${p.name}'s goals. Tell him why in Trash Talk.`); }
       catch (e) { console.error(e); toast("That didn't save."); }
@@ -524,12 +526,20 @@ function renderSignoff(ch) {
       h("div", { class: "pd-act so-act" }, status, votes, ownerBtn, isMe ? h("button", { class: "mini-btn", type: "button", onclick: openSettings }, so.count ? "Edit goals" : "Set your goals") : null));
   });
   const so = L.signoffFor(state.players, ch, uid);
+  // Everyone else's lists fold away (Jason 2026-10-30: "I don't need everybody's goals and approval always showing").
+  // Open on load only while a list still needs your vote; after that it remembers your tap.
+  const mine = ids[0] === uid ? rows.slice(0, 1) : [], rest = rows.slice(mine.length);
+  const open = state._soOpen ?? needMe > 0;
+  const tally = [`${okOthers} of ${others} approved`, needMe ? `${needMe} need${needMe === 1 ? "s" : ""} your vote` : null].filter(Boolean).join(" · ");
   return h("section", { "aria-labelledby": "soH" },
     h("div", { class: "sec-head" }, h("h2", { id: "soH" }, "Goal check"), h("span", { class: "note" }, `Before ${fmtDay(ch.start, { weekday: "long" })}`)),
     h("div", { class: "pot so" },
       h("p", { class: "so-lead" }, !so.enough ? h("b", {}, `Set at least ${so.min} goals. `) : so.approved ? h("b", {}, "Your goals are approved. ") : h("b", {}, "Your goals are waiting on the pack. "),
         "Then tap Fair or Too easy on everyone else's list."),
-      h("ul", { class: "pd-block so-list" }, rows),
+      mine.length ? h("ul", { class: "pd-block so-list" }, mine) : null,
+      rest.length ? h("details", { class: "so-wrap", open: open || null, ontoggle: (e) => { state._soOpen = e.target.open; } },
+        h("summary", {}, h("span", {}, "Everyone else's goals"), h("small", {}, tally)),
+        h("ul", { class: "pd-block so-list" }, rest)) : null,
       help("Why a goal check?", [
         "Everyone picks their own goals, so someone could pick easy ones. The pack keeps it fair.",
         `Each list needs at least ${so.min} goals. A day with fewer counts as a strike.`,
@@ -1374,7 +1384,8 @@ function todoCard(ch) {
     const ready = others.map((pid) => L.signoffFor(state.players, ch, pid)).filter((x) => x.enough);
     const voted = ready.filter((x) => typeof myVotes[x.key] === "boolean").length;
     items.push({ done: ready.length > 0 && voted === ready.length && ready.length === others.length, text: "Vote Fair or Too easy on each list",
-      sub: ready.length ? `${voted} of ${ready.length} voted${ready.length < others.length ? ` · ${others.length - ready.length} still setting goals` : ""}` : "Nobody else's list is ready yet", go: jump("soH") });
+      sub: ready.length ? `${voted} of ${ready.length} voted${ready.length < others.length ? ` · ${others.length - ready.length} still setting goals` : ""}` : "Nobody else's list is ready yet",
+      go: () => { const d = document.querySelector("details.so-wrap"); if (d) d.open = true; jump("soH")(); } });
   }
   items.push({ done: so.approved, text: "Get your list approved", sub: so.approved ? (so.byOwner ? "Approved by the owner" : `${so.yes} of ${so.need} yes`) : !so.enough ? "Set your goals first" : `${so.yes} of ${so.need} yes so far${so.no ? ` · ${so.no} said too easy` : ""}`, go: jump("soH") });
   if (items.every((i) => i.done)) return null;
