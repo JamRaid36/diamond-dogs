@@ -90,8 +90,8 @@ function seed(scenario, now) {
   if (scenario === "pardon") {
     const st = L.potStatus(store.players, Object.assign({ id: "c1" }, ch), now);
     const rs = st.rows.find((r) => r.uid === "riley").list[0];
-    store.players.riley.appeals = { [rs.pardon.key]: true };
-    store.players.sam.votes = { [rs.pardon.key]: true };
+    store.players.riley.appeals = { [rs.pardon.key]: now - 17 * 3600000 }; // asked 17 hours ago: 31 left on the clock
+    store.players.sam.pvotes = { [rs.pardon.key]: { y: true, at: now - 16 * 3600000 } };
   }
   if (scenario === "active" || scenario === "showcase" || scenario === "member") {
     const t0 = now - 3 * 3600000;

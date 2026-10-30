@@ -11,7 +11,8 @@
  *                     skips: {<YYYY-MM-DD>: bool}   days off: nothing counts, streaks jump them, weekly targets drop a day
  *                     perWeek null = a daily goal (every day counts); 1-7 = "N days a week", weeks run from the start day.
  *   players/<uid>    {name, joinedAt, targets: {<goalId>: text}, days: {<YYYY-MM-DD>: {<goalId>: bool}},
- *                     appeals: {<strikeKey>: bool}, votes: {<strikeKey>: bool}}   pardons: see pardonFor
+ *                     appeals: {<strikeKey>: ms asked}, lastAsk: {key, at}, pvotes: {<strikeKey>: {y, at}}, lastVote: {key, at},
+ *                     votes: {<goal-list key>: bool}}   pardons: see pardonFor
  *   results/<date>   {date, challengeId, rows: [{uid, name, hit, of, pct, perfect}], createdAt}   (create-only)
  * Day boundary is America/Los_Angeles. A day stays editable until noon the next day, then it is final and its
  * results doc may be posted.
@@ -150,7 +151,7 @@
   }
 
   // Sign-off on a player's goal list: more than half of the OTHER entrants vote yes on its current key, or the owner
-  // approves it (goalsOk[uid] === key). Votes ride the same players/<voter>.votes map as pardons.
+  // approves it (goalsOk[uid] === key).
   function signoffKey(ch, uid) { return [ch.id, uid, "goals", goalSetKey(ch, uid)].join("|"); }
   function signoffFor(players, ch, uid) {
     players = players || {};
@@ -159,7 +160,13 @@
     // What counts on day 1, group goals plus their own. Not activeGoals: a day off on day 1 would make that zero.
     var count = goalList(chFor(ch, uid)).filter(function (g) { return g.addedOn <= ch.start && (!g.closedOn || ch.start < g.closedOn); }).length;
     var min = minGoalsOn(ch);
-    var p = pardonFor(players, entrants, uid, key); // asked is irrelevant here: a list is always up for sign-off
+    // Goal-list votes ride players/<voter>.votes and can be changed (the list can change too). Never your own.
+    var others = entrants.filter(function (u) { return u !== uid; });
+    var p = { yes: 0, no: 0, need: Math.floor(others.length / 2) + 1, voters: others.length };
+    others.forEach(function (u) {
+      var v = players[u] && players[u].votes && players[u].votes[key];
+      if (v === true) p.yes++; else if (v === false) p.no++;
+    });
     var byOwner = !!(ch.goalsOk && ch.goalsOk[uid] === goalSetKey(ch, uid));
     var enough = count >= min;
     return { key: key, setKey: goalSetKey(ch, uid), count: count, min: min, enough: enough, yes: p.yes, no: p.no, need: p.need, voters: p.voters,
@@ -340,8 +347,10 @@
   }
 
   // The instant catch-up closes: noon Pacific the day after creation (DST-safe: try both offsets).
-  function catchUpClosesMs(ch) {
-    var d = addDays(pacificDate(ch.createdAt), 1).split("-").map(Number);
+  function catchUpClosesMs(ch) { return noonAfterMs(pacificDate(ch.createdAt)); }
+  // Noon Pacific the day after `date`: when that day (or a week ending that day) locks.
+  function noonAfterMs(date) {
+    var d = addDays(date, 1).split("-").map(Number);
     for (var off = 7; off <= 8; off++) {
       var ms = Date.UTC(d[0], d[1] - 1, d[2], FINAL_HOUR + off);
       if (pacificHour(ms) === FINAL_HOUR) return ms;
@@ -683,22 +692,44 @@
 
   // A pardon: the struck player asks, the others vote. More than half of the other entrants voting yes wipes the strike.
   // Asks and votes live on each player's own doc (players write only their own), keyed by the strike.
-  //   players/<uid>.appeals: {<strikeKey>: true}      only counts when the key names <uid> itself
-  //   players/<uid>.votes:   {<strikeKey>: true|false} never counts on the voter's own strikes
+  //   players/<uid>.appeals: {<strikeKey>: <ms asked>}      only counts when the key names <uid> itself
+  //   players/<uid>.pvotes:  {<strikeKey>: {y: bool, at: ms}} never counts on the voter's own strikes
+  // A 48-hour clock (Jason 2026-10-29: "a required vote in a timely manner"): more than half yes pardons it on the spot;
+  // when the clock runs out, the players who voted decide (more yes than no), so not voting can't block anyone.
+  // Nobody voted, or a tie, and the strike stands. Asks and votes are final (one each, the rules refuse changes) and
+  // carry the server's time, so the result can't move once the clock is out: votes cast after it don't count.
+  // The clock starts when the strike locks, or at the ask if later, so asking ahead of a strike gains nothing.
+  // An ask stored as true (before the clock existed) starts the clock when the strike locks.
   function strikeKey(chId, uid, s) {
     return [chId, uid, s.kind, s.date, s.goalId || "-"].join("|");
   }
 
-  function pardonFor(players, entrants, uid, key) {
+  var PARDON_MS = 48 * 3600000;
+  // When a strike on `date` becomes final: noon the next day, or when catch-up closes for days before the challenge
+  // was created (GPT review 2026-10-29: a pre-ask on a catch-up strike must still get the full 48 hours).
+  function strikeLockMs(ch, date) {
+    var ms = noonAfterMs(date);
+    if (ch && typeof ch.createdAt === "number" && isFinite(ch.createdAt) && date < pacificDate(ch.createdAt)) ms = Math.max(ms, catchUpClosesMs(ch));
+    return ms;
+  }
+  function pardonFor(players, entrants, uid, key, nowMs, lockedMs) {
     var others = entrants.filter(function (u) { return u !== uid; });
-    var asked = !!(players[uid] && players[uid].appeals && players[uid].appeals[key] === true);
+    var a = players[uid] && players[uid].appeals && players[uid].appeals[key];
+    var at = typeof a === "number" && isFinite(a) && a > 0 ? a : null;
+    var asked = a === true || at !== null;
+    var start = asked ? Math.max(at || 0, lockedMs || 0) : null;
+    var closesAt = start ? start + PARDON_MS : null;
+    var expired = closesAt !== null && typeof nowMs === "number" && nowMs >= closesAt;
     var yes = 0, no = 0;
     others.forEach(function (u) {
-      var v = players[u] && players[u].votes && players[u].votes[key];
-      if (v === true) yes++; else if (v === false) no++;
+      var v = players[u] && players[u].pvotes && players[u].pvotes[key];
+      if (!v || typeof v.y !== "boolean" || !(typeof v.at === "number" && (closesAt === null || v.at < closesAt))) return;
+      if (v.y) yes++; else no++;
     });
     var need = Math.floor(others.length / 2) + 1;
-    return { key: key, asked: asked, yes: yes, no: no, need: need, voters: others.length, pardoned: asked && others.length > 0 && yes >= need };
+    var pardoned = asked && others.length > 0 && (yes >= need || (expired && yes > no));
+    return { key: key, asked: asked, yes: yes, no: no, need: need, voters: others.length, pardoned: pardoned,
+      closesAt: closesAt, expired: expired, open: asked && !pardoned && !expired };
   }
 
   // Everyone on the board is in for the buy-in. Out at `strikes` strikes, after pardons.
@@ -719,7 +750,7 @@
     var gated = !!treasurerOf(ch) && pacificDate(nowMs) >= ch.start;
     var rows = entrants.map(function (uid) {
       var list = strikesFor(players[uid], chFor(ch, uid), nowMs).map(function (s) {
-        return Object.assign({}, s, { pardon: pardonFor(players, entrants, uid, strikeKey(ch.id, uid, s)) });
+        return Object.assign({}, s, { pardon: pardonFor(players, entrants, uid, strikeKey(ch.id, uid, s), nowMs, strikeLockMs(ch, s.date)) });
       }).sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
       var n = list.filter(function (s) { return !s.pardon.pardoned; }).length;
       return {
@@ -805,14 +836,22 @@
     return { patch: { houseRules: t } };
   }
 
-  // A player asks for a pardon on one of their own strikes, or takes the ask back.
-  function appealPatch(key, on) {
+  // A player asks for a pardon on one of their own strikes. Final: one ask per strike. lastAsk names the one key this
+  // write adds, so the rules can check it's new and its time is the server's.
+  function appealPatch(key, nowMs) {
     var m = {};
-    m[key] = !!on;
-    return { patch: { appeals: m } };
+    m[key] = nowMs;
+    return { patch: { appeals: m, lastAsk: { key: key, at: nowMs } } };
   }
 
-  // A player votes yes or no on someone else's strike.
+  // A player votes yes or no on someone else's pardon ask. Final, timed like an ask (see appealPatch).
+  function pardonVotePatch(key, yes, nowMs) {
+    var m = {};
+    m[key] = { y: !!yes, at: nowMs };
+    return { patch: { pvotes: m, lastVote: { key: key, at: nowMs } } };
+  }
+
+  // A yes/no on someone's goal list (changeable: the list can change too).
   function votePatch(key, yes) {
     var m = {};
     m[key] = !!yes;
@@ -945,7 +984,7 @@
     strikesFor: strikesFor, potStatus: potStatus, potPatch: potPatch, paidPatch: paidPatch,
     groupScore: groupScore, snapshotOf: snapshotOf, snapshotParts: snapshotParts, assembleSnapshot: assembleSnapshot, backupComplete: backupComplete, backupPlan: backupPlan, BACKUP_KEEP: BACKUP_KEEP, endForWeeks: endForWeeks, weeksOf: weeksOf, chFor: chFor, ownView: ownView, ownPatch: ownPatch, ownGoals: ownGoals, MAX_PERSONAL: MAX_PERSONAL, ownGoalsWithout: ownGoalsWithout, canAddOwn: canAddOwn,
     minGoalsOn: minGoalsOn, goalSetKey: goalSetKey, signoffFor: signoffFor, signoffVotePatch: signoffVotePatch, ownerSignoffPatch: ownerSignoffPatch, minGoalsPatch: minGoalsPatch,
-    strikeKey: strikeKey, appealPatch: appealPatch, votePatch: votePatch, houseRulesPatch: houseRulesPatch, MAX_RULES: MAX_RULES, treasurerPatch: treasurerPatch, treasurerOf: treasurerOf, MAX_PAYHOW: MAX_PAYHOW, paidOf: paidOf, ownerPaidPatch: ownerPaidPatch, settlePatch: settlePatch, unsettlePatch: unsettlePatch,
+    strikeKey: strikeKey, appealPatch: appealPatch, pardonVotePatch: pardonVotePatch, PARDON_MS: PARDON_MS, noonAfterMs: noonAfterMs, strikeLockMs: strikeLockMs, votePatch: votePatch, houseRulesPatch: houseRulesPatch, MAX_RULES: MAX_RULES, treasurerPatch: treasurerPatch, treasurerOf: treasurerOf, MAX_PAYHOW: MAX_PAYHOW, paidOf: paidOf, ownerPaidPatch: ownerPaidPatch, settlePatch: settlePatch, unsettlePatch: unsettlePatch,
     isSkip: isSkip, skipDates: skipDates, skipPatch: skipPatch, renamePatch: renamePatch, endPlan: endPlan, handoffPlan: handoffPlan,
     catchUpOpen: catchUpOpen, pruneEmpty: pruneEmpty, orphanGoals: orphanGoals, recoverGoalsPatch: recoverGoalsPatch, ownerTickPatch: ownerTickPatch, datesPatch: datesPatch, canMoveStart: canMoveStart, moveStartPatch: moveStartPatch, catchUpClosesMs: catchUpClosesMs, editableDates: editableDates, MAX_BACKDATE: MAX_BACKDATE,
     resultsDue: resultsDue, resultId: resultId, buildResult: buildResult, joinedBy: joinedBy,

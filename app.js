@@ -115,6 +115,7 @@ function renderInner() {
     potStrip(ch),
     h("img", { class: "brand-hero small", src: "logo-hero.webp", alt: "Alpha Pack", width: "720", height: "582" }),
     t < ch.start && !state.chId ? todoCard(ch) : null,
+    t >= ch.start && !state.chId ? voteCard(ch) : null,
     welcomeCard(),
     installCard(),
     quickLinks(),
@@ -447,7 +448,11 @@ function strikeLabel(ch, s) {
   if (s.kind === "week") return `Week ending ${fmtDay(s.date)} · ${ch.goals?.[s.goalId]?.text || "a weekly goal"}`;
   return `${fmtDay(s.date)} · not every daily goal done`;
 }
-function voteLine(pd) { return `${pd.yes} of ${pd.need} yes${pd.no ? ` · ${pd.no} no` : ""}`; }
+function voteLine(pd) { return `${pd.yes} of ${pd.need} yes${pd.no ? ` · ${pd.no} no` : ""}${pd.closesAt ? ` · ${timeLeft(pd.closesAt)}` : ""}`; }
+function timeLeft(ms) {
+  const h = Math.ceil((ms - now()) / 3600000);
+  return h <= 1 ? "under an hour left" : `${h} hours left`;
+}
 
 function renderPot(ch) {
   const st = L.potStatus(state.players, ch, now());
@@ -478,8 +483,8 @@ function renderPot(ch) {
         "A strike is a day you didn't finish every daily goal, or a weekly goal you came up short on. A day counts at noon the next day, so you have the morning to fix your ticks. Days off never count.",
         `${st.limit} strike${st.limit === 1 ? "" : "s"} and you're out. The players still in split the pot at the end. If nobody makes it, everyone gets their money back.`,
         st.comeback ? `Comeback: once you're out, keep going. Finish without another strike and you get ${money(st.comeback)} back. You can't win the pot that way, but it cuts your loss.` : null,
-        "Pardon: had a real reason? Ask for a pardon on that strike. If more than half of the other players vote yes, it's wiped. Votes stay open until the owner settles the pot.",
-        "Settling: after the last day locks, the owner settles the pot. That locks every payout for good.",
+        "Pardon: had a real reason? Ask for a pardon on that strike. As soon as more than half of the other players vote yes, it's gone. Everyone has 48 hours to vote. When time's up, the players who voted decide: more yes than no and it's gone. Nobody voted, or a tie, and the strike stands. One ask per strike, and votes are final.",
+        "Settling: after the last day of the challenge, the owner taps Settle. That freezes the final results and who gets paid what, so the treasurer can pay out.",
       ])));
 }
 
@@ -572,7 +577,12 @@ function settleBlock(ch, st) {
   if (!st.final) return null;
   if (!owner) return h("p", { class: "settle" }, "It's over. Pardon votes stay open until the owner settles the pot, then payouts lock.");
   return h("div", { class: "settle" },
-    h("p", {}, "It's over. Give everyone a chance to vote on last-day pardons, then settle. Settling locks every payout."),
+    (() => {
+      const open = st.rows.flatMap((r) => r.list).filter((s) => s.pardon.open);
+      const last = open.length ? Math.max(...open.map((s) => s.pardon.closesAt || 0)) : 0;
+      return h("p", {}, open.length ? h("b", {}, `${open.length} pardon vote${open.length === 1 ? " is" : "s are"} still open${last ? ` (${timeLeft(last)})` : ""}. Wait for ${open.length === 1 ? "it" : "them"}, then settle. `) : null,
+        "It's over. Settling freezes the final results and who gets paid what, so the treasurer can pay out.");
+    })(),
     h("button", { class: "btn blaze", type: "button", onclick: async () => {
       if (state.confirmSettle !== ch.id) { state.confirmSettle = ch.id; render(); return; }
       state.confirmSettle = null;
@@ -615,31 +625,41 @@ function renderPardons(ch, st) {
     const pd = s.pardon;
     const status = pd.pardoned ? h("span", { class: "pd-state ok" }, "Pardoned")
       : pd.voters === 0 ? h("span", { class: "pd-state" }, "Nobody else to vote")
+      : pd.expired ? h("span", { class: "pd-state warn" }, `Vote closed · ${pd.yes} yes, ${pd.no} no · strike stands`)
       : pd.asked ? h("span", { class: "pd-state" }, voteLine(pd)) : null;
-    const btn = !open || pd.pardoned || pd.voters === 0 ? null : h("button", { class: "mini-btn" + (pd.asked ? " ghosty" : ""), type: "button", onclick: async () => {
-      try { await state.backend.mergePlayer(state.user.uid, L.appealPatch(pd.key, !pd.asked).patch); toast(pd.asked ? "Ask taken back." : "Asked. The others can vote now."); }
-      catch (e) { console.error(e); toast("That didn't save."); }
-    } }, pd.asked ? "Take back" : "Ask for a pardon");
+    // One ask per strike, final (GPT review 2026-10-29): a second tap confirms.
+    const confirming = state.confirmAsk === pd.key;
+    const btn = !open || pd.asked || pd.voters === 0 ? null : h("button", { class: "mini-btn" + (confirming ? " on" : ""), type: "button", onclick: async () => {
+      if (!confirming) { state.confirmAsk = pd.key; render(); return; }
+      state.confirmAsk = null;
+      try { await state.backend.mergePlayer(state.user.uid, L.appealPatch(pd.key, now()).patch); toast("Asked. The others have 48 hours to vote."); }
+      catch (e) { console.error(e); toast("That didn't save."); render(); }
+    } }, confirming ? "Tap again to ask (one ask per strike)" : "Ask for a pardon");
     return h("li", { class: pd.pardoned ? "pardoned" : null }, h("span", { class: "pd-what" }, strikeLabel(ch, s)), h("span", { class: "pd-act" }, status, btn));
   });
-  const myVotes = me()?.votes || {};
+  const myVotes = me()?.pvotes || {};
   const asks = [];
   st.rows.filter((r) => r.uid !== state.user.uid).forEach((r) => r.list.forEach((s) => {
-    if (s.pardon.asked && !s.pardon.pardoned) asks.push({ r, s });
+    if (s.pardon.open) asks.push({ r, s });
   }));
+  // Votes are final (GPT review 2026-10-29): a second tap confirms, then it shows how you voted.
   const voteBtns = ({ s }) => {
     const v = myVotes[s.pardon.key];
+    if (v && typeof v.y === "boolean") return h("span", { class: "pd-act" }, h("span", { class: "pd-state" + (v.y ? " ok" : "") }, v.y ? "You voted yes" : "You voted no"));
+    const c = state.confirmVote?.key === s.pardon.key ? state.confirmVote.yes : null;
     const cast = (yes) => async () => {
-      try { await state.backend.mergePlayer(state.user.uid, L.votePatch(s.pardon.key, yes).patch); toast(yes ? "Voted yes." : "Voted no."); }
-      catch (e) { console.error(e); toast("That didn't save."); }
+      if (c !== yes) { state.confirmVote = { key: s.pardon.key, yes }; render(); return; }
+      state.confirmVote = null;
+      try { await state.backend.mergePlayer(state.user.uid, L.pardonVotePatch(s.pardon.key, yes, now()).patch); toast(yes ? "Voted yes." : "Voted no."); }
+      catch (e) { console.error(e); toast("That didn't save."); render(); }
     };
     return h("span", { class: "pd-act" },
-      h("button", { class: "mini-btn" + (v === true ? " on" : ""), type: "button", "aria-pressed": String(v === true), disabled: !open, onclick: cast(true) }, "Yes"),
-      h("button", { class: "mini-btn" + (v === false ? " on-no" : ""), type: "button", "aria-pressed": String(v === false), disabled: !open, onclick: cast(false) }, "No"));
+      h("button", { class: "mini-btn" + (c === true ? " on" : ""), type: "button", disabled: !open, onclick: cast(true) }, c === true ? "Tap again: yes is final" : "Yes"),
+      h("button", { class: "mini-btn" + (c === false ? " on-no" : ""), type: "button", disabled: !open, onclick: cast(false) }, c === false ? "Tap again: no is final" : "No"));
   };
   if (!mine.length && !asks.length) return null;
   return h("div", { class: "pardons" },
-    asks.length ? h("div", { class: "pd-block" }, h("h3", {}, open ? "Vote on a pardon" : "Pardon asks"),
+    asks.length ? h("div", { class: "pd-block" }, h("h3", { id: "pardonsH" }, open ? "Vote on a pardon" : "Pardon asks"),
       h("ul", {}, asks.map((a) => h("li", {}, h("span", { class: "pd-what" }, h("b", {}, a.r.name), ` asks: ${strikeLabel(ch, a.s)}`, h("small", {}, voteLine(a.s.pardon))), voteBtns(a))))) : null,
     mine.length ? h("div", { class: "pd-block" }, h("h3", {}, "Your strikes"), h("ul", {}, mine)) : null);
 }
@@ -1314,6 +1334,27 @@ function installCard() {
     h("div", { class: "callout-actions" }, h("button", { class: "mini-btn", type: "button", onclick: () => { markSeen("installDone"); render(); } }, "Done, hide this")));
 }
 
+// During the season: pardon votes waiting on you, with the clock (Jason 2026-10-29: "a required vote in a timely
+// manner"). Gone once you've voted on each. Tap to jump to the vote.
+function voteCard(ch) {
+  const st = L.potStatus(state.players, ch, now());
+  if (!st || st.settled) return null;
+  const mine = me()?.pvotes || {};
+  const due = [];
+  st.rows.filter((r) => r.uid !== state.user.uid).forEach((r) => r.list.forEach((s) => {
+    if (s.pardon.open && !mine[s.pardon.key]) due.push({ r, s });
+  }));
+  if (!due.length) return null;
+  const jump = () => document.getElementById("pardonsH")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  return h("section", { class: "callout todo vote-due", "aria-labelledby": "voteDueH" },
+    h("h2", { id: "voteDueH" }, "Your vote is needed"),
+    h("p", {}, "Yes or no, and it's final. When time runs out, only the votes cast count."),
+    h("ul", { class: "todo-list" }, due.map(({ r, s }) => h("li", {}, h("button", { class: "todo-item", type: "button", onclick: jump },
+      h("span", { class: "todo-tick", "aria-hidden": "true" }, ""),
+      h("span", { class: "todo-txt" }, h("b", {}, `Vote on ${r.name}'s pardon`), h("small", {}, `${strikeLabel(ch, s)} · ${s.pardon.closesAt ? timeLeft(s.pardon.closesAt) : "no deadline"}`)),
+      h("span", { class: "next-go", "aria-hidden": "true" }, "\u203a"))))));
+}
+
 // Before the start: just your to-dos, ticked as they're done, gone once they all are (Jason 2026-10-29, after Joseph
 // asked if the pot was real and how the goal check works). Each line jumps to where you do it.
 function todoCard(ch) {
@@ -1429,8 +1470,9 @@ function rulesFor(ch) {
     ]) : sec("The pot", ["No pot on this challenge. Bragging rights only."]),
     pot ? sec("Pardons", [
       "Had a real reason for a strike? Ask for a pardon on it (The Pot, Your strikes).",
-      "Everyone else votes yes or no. More than half of the other players saying yes wipes the strike.",
-      "You can't vote on your own. Voting stays open after the last day until the owner settles the pot, so last-day strikes can be pardoned too.",
+      "Everyone else votes yes or no. As soon as more than half of the other players say yes, the strike is gone.",
+      "Everyone has 48 hours to vote. When time's up, the players who voted decide: more yes than no and it's gone. Nobody voted, or a tie, and the strike stands. Not voting just means you don't get a say.",
+      "One ask per strike, and votes are final: no take-backs. You can't vote on your own. Last-day strikes can be pardoned too: the owner settles the pot only after the votes are in.",
     ]) : null,
     ch.houseRules ? h("section", { class: "rule house" }, h("h3", {}, "House rules"), h("p", { class: "house-text" }, ch.houseRules)) : null,
   ];
@@ -1462,7 +1504,7 @@ function openHelp(open = null) {
     q("strike", "What's a strike?", p("A day you didn't finish every daily goal, or a weekly goal you came up short on when the week ends. A day only counts once it locks at noon the next day. Days off never count.")),
     q("pot", "How does the pot work?", p("Everyone pays the buy-in up front to the treasurer (the pot shows who and how). Only the treasurer marks who paid, and you're not in the pot until they do. Too many strikes and you're out. Whoever is still in at the end splits it. If nobody makes it, everyone gets their money back.")),
     q("comeback", "I'm out. Now what?", p("Keep going. If the challenge has a comeback, finish without another strike and you get that amount back. You can't win the pot that way, but it cuts your loss.")),
-    q("pardon", "Can a strike be forgiven?", p("Yes. Under The Pot, Your strikes, tap Ask for a pardon. The others vote. More than half of them saying yes wipes it. You can't vote on your own.")),
+    q("pardon", "Can a strike be forgiven?", p("Yes. Under The Pot, Your strikes, tap Ask for a pardon. The others have 48 hours to vote. More than half saying yes wipes it right away; when time's up, the players who voted decide. You can't vote on your own.")),
     q("packpoints", "What are pack points?", p("Group goals score the pack as a team: 1 point for each day (or week) everyone hits one. The app counts it from everyone's ticks. Bragging rights for now; they don't change the pot.")),
     q("board", "What's the Daily Board?", p("Each day's final scores, posted once the day locks at noon. The top of the list is a live view of today.")),
     q("chat", "What's Trash Talk?", p("A group message board. Everyone in the group sees it. You can delete your own posts.")),
