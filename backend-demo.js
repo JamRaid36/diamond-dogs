@@ -44,7 +44,7 @@ function seed(scenario, now) {
     ch.start = d(2); ch.end = d(23); ch.goals = {}; ch.minGoals = 3;
     const g = (t, i, pw) => ({ text: t, addedOn: d(2), closedOn: null, order: i, perWeek: pw || null });
     ch.playerGoals = { sam: { s1: g("Protein 180 g", 1), s2: g("Read a chapter", 2), s3: g("Lift", 3, 3) }, riley: { r1: g("Drink water", 1) } };
-    ch.pot = { buyIn: 100, strikes: 3, comeback: 50, paid: {} };
+    ch.pot = { buyIn: 100, strikes: 3, comeback: 50, treasurer: "me", paid: { me: true } }; // you hold the money; sam hasn't paid
   }
   if (scenario === "invited" || scenario === "season1") { // Jason's real season 1 setup, for testers (Tabitha): next Saturday, 3 weeks, his goals and pot
     const sat = d((6 - new Date(now).getDay() + 7) % 7 || 7);

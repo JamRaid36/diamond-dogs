@@ -702,6 +702,9 @@
   }
 
   // Everyone on the board is in for the buy-in. Out at `strikes` strikes, after pardons.
+  // Paying gets you in (Jason 2026-10-29): with a treasurer, once it starts, anyone not marked paid stays on the board
+  // (strikes and all) but is not in the pot: not counted in the total, no share, no comeback, until they're marked paid.
+  // Without a treasurer nobody tracks payment, so everyone counts.
   // Comeback: once out, finish without another strike and get `comeback` dollars back, paid from the pot first.
   // Survivors split what's left evenly; if nobody survives, everyone gets their buy-in back.
   function potStatus(players, ch, nowMs) {
@@ -713,6 +716,7 @@
     var back = pot.comeback > 0 ? Math.min(pot.comeback, pot.buyIn) : 0;
     // Entrants: everyone on the board who joined by the last day. Joining after it's over doesn't buy a share.
     var entrants = Object.keys(players).filter(function (uid) { return joinedBy(players[uid], ch.end); });
+    var gated = !!treasurerOf(ch) && pacificDate(nowMs) >= ch.start;
     var rows = entrants.map(function (uid) {
       var list = strikesFor(players[uid], chFor(ch, uid), nowMs).map(function (s) {
         return Object.assign({}, s, { pardon: pardonFor(players, entrants, uid, strikeKey(ch.id, uid, s)) });
@@ -721,23 +725,25 @@
       return {
         uid: uid, name: (players[uid] && players[uid].name) || "Player", strikes: n, list: list,
         out: n >= limit, comeback: back > 0 && n === limit, paid: paidOf(pot, uid), paidByOwner: paidByOwnerOf(pot, uid),
+        inPot: !gated || paidOf(pot, uid),
       };
     }).sort(function (a, b) { return a.strikes - b.strikes || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0); });
-    var alive = rows.filter(function (r) { return !r.out; }).length;
-    var total = pot.buyIn * rows.length;
-    var comebacks = alive ? rows.filter(function (r) { return r.comeback; }).length : 0;
+    var inRows = rows.filter(function (r) { return r.inPot; });
+    var alive = inRows.filter(function (r) { return !r.out; }).length;
+    var total = pot.buyIn * inRows.length;
+    var comebacks = alive ? inRows.filter(function (r) { return r.comeback; }).length : 0;
     var share = alive ? Math.floor(((total - back * comebacks) / alive) * 100) / 100 : pot.buyIn;
-    rows.forEach(function (r) { r.payout = !alive ? pot.buyIn : !r.out ? share : r.comeback ? back : 0; });
+    rows.forEach(function (r) { r.payout = !r.inPot ? 0 : !alive ? pot.buyIn : !r.out ? share : r.comeback ? back : 0; });
     return {
       buyIn: pot.buyIn, limit: limit, comeback: back, pot: total, rows: rows, alive: alive, comebacks: comebacks,
-      share: share, refund: alive === 0, settled: false,
+      share: share, refund: alive === 0, settled: false, gated: gated, notIn: rows.length - inRows.length,
       paid: rows.filter(function (r) { return r.paid; }).length, final: isFinal(ch.end, nowMs, ch),
     };
   }
 
   // Settling freezes the pot: who's out, who made a comeback, and every payout. After that, votes and tick fixes
   // change nothing. Pardon votes stay open until the owner settles, so last-day strikes can still be appealed.
-  var ROW_KEYS = ["uid", "name", "strikes", "out", "comeback", "payout"];
+  var ROW_KEYS = ["uid", "name", "strikes", "out", "comeback", "payout", "inPot"];
   function settlePatch(st, nowMs) {
     if (!st) return { error: "There's no pot to settle." };
     if (st.settled) return { error: "Already settled." };
@@ -754,14 +760,16 @@
     var limit = pot.strikes >= 1 ? pot.strikes : 3;
     var back = pot.comeback > 0 ? Math.min(pot.comeback, pot.buyIn) : 0;
     var rows = pot.settled.rows.map(function (r) {
-      return { uid: r.uid, name: r.name, strikes: r.strikes, out: !!r.out, comeback: !!r.comeback, payout: r.payout, list: [], paid: paidOf(pot, r.uid), paidByOwner: paidByOwnerOf(pot, r.uid) };
+      // Settled before inPot existed: everyone was in.
+      return { uid: r.uid, name: r.name, strikes: r.strikes, out: !!r.out, comeback: !!r.comeback, payout: r.payout, list: [], paid: paidOf(pot, r.uid), paidByOwner: paidByOwnerOf(pot, r.uid), inPot: r.inPot !== false };
     });
-    var alive = rows.filter(function (r) { return !r.out; }).length;
-    var survivor = rows.find(function (r) { return !r.out; });
+    var inRows = rows.filter(function (r) { return r.inPot; });
+    var alive = inRows.filter(function (r) { return !r.out; }).length;
+    var survivor = inRows.find(function (r) { return !r.out; });
     return {
-      buyIn: pot.buyIn, limit: limit, comeback: back, pot: pot.buyIn * rows.length, rows: rows, alive: alive,
-      comebacks: alive ? rows.filter(function (r) { return r.comeback; }).length : 0,
-      share: survivor ? survivor.payout : pot.buyIn, refund: alive === 0, settled: true, settledAt: pot.settled.at,
+      buyIn: pot.buyIn, limit: limit, comeback: back, pot: pot.buyIn * inRows.length, rows: rows, alive: alive,
+      comebacks: alive ? inRows.filter(function (r) { return r.comeback; }).length : 0,
+      share: survivor ? survivor.payout : pot.buyIn, refund: alive === 0, settled: true, settledAt: pot.settled.at, gated: rows.length > inRows.length, notIn: rows.length - inRows.length,
       paid: rows.filter(function (r) { return r.paid; }).length, final: true,
     };
   }

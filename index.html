@@ -48,7 +48,7 @@
   color-scheme: dark;
 }
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; scroll-padding-top: 96px; } /* jumps land below the sticky header */
 body {
   margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.45 var(--body);
   -webkit-font-smoothing: antialiased; min-height: 100dvh;
@@ -389,6 +389,8 @@ body {
 .pot-amt small { -webkit-text-fill-color: var(--muted); }
 .pot-rows li { padding: 8px 10px; border-radius: 12px; background: oklch(0 0 0 / 0.18); }
 .pot-rows .paid { color: var(--muted); }
+.pot-rows .not-in-tag { color: var(--warn); }
+.pot-rows li.not-in > span:first-child b { opacity: 0.65; }
 /* strikes: diamonds; a strike is a cracked red one */
 .strikes { display: inline-flex; align-items: center; gap: 5px; }
 .strikes i { width: 11px; height: 11px; border-radius: 2px; transform: rotate(45deg); margin-left: 3px; border: 1.5px solid var(--ice); background: color-mix(in oklch, var(--ice) 18%, transparent); }
@@ -459,6 +461,17 @@ dialog.sheet::backdrop { background: oklch(0.08 0.02 262 / 0.65); }
 .steps { margin: 0; padding-left: 22px; display: grid; gap: 8px; font-size: 15px; color: var(--ink); line-height: 1.4; }
 .steps li::marker { color: var(--blaze); font-weight: 700; }
 .callout-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.todo-list { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 8px; }
+.todo-item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.todo-tick { flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--blaze); font: 800 15px/1 var(--display); }
+.todo-txt { flex: 1; min-width: 0; }
+.todo-txt b { display: block; font-size: 16px; }
+.todo-txt small { display: block; margin-top: 2px; font-size: 13px; color: var(--muted); }
+.todo-item.done { opacity: 0.7; }
+.todo-item.done .todo-tick { background: var(--hit); border-color: var(--hit); color: oklch(0.2 0.03 240); }
+.todo-item.done b { text-decoration: line-through; text-decoration-color: var(--muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .callout-actions .mini-btn { min-height: 44px; }
 .quick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: -8px; }
 .quick.three { grid-template-columns: 1fr 1fr 1fr; }

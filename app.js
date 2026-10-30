@@ -114,6 +114,7 @@ function renderInner() {
       h("button", { class: "link-btn", type: "button", onclick: () => pick(null) }, "Back to current")) : null,
     potStrip(ch),
     h("img", { class: "brand-hero small", src: "logo-hero.webp", alt: "Alpha Pack", width: "720", height: "582" }),
+    t < ch.start && !state.chId ? todoCard(ch) : null,
     welcomeCard(),
     installCard(),
     quickLinks(),
@@ -428,17 +429,19 @@ function potStrip(ch) {
   if (!st) return null;
   const mine = st.rows.find((r) => r.uid === state.user.uid);
   // Joseph 2026-10-29: "is there $300 in the pot legit?" Until everyone has paid, say so, and tell an unpaid player who to pay.
-  const unpaid = !st.settled && st.paid < st.rows.length;
+  // Once it starts (with a treasurer) the pot only counts who's paid, so the plain total is true again.
+  const unpaid = !st.settled && !st.gated && st.paid < st.rows.length;
   const t = L.treasurerOf(ch);
   const tName = t && t !== state.user.uid ? state.players?.[t]?.name : null; // the treasurer doesn't pay themselves a reminder
-  const you = !mine ? null : !st.settled && !mine.paid && t !== state.user.uid ? `you: not paid yet${tName ? ` · ${money(st.buyIn)} to ${tName}` : ""}`
+  const you = !mine ? null : !mine.inPot ? `you: not in the pot${tName ? ` · pay ${money(st.buyIn)} to ${tName}` : " · mark yourself paid"}`
+    : !st.settled && !mine.paid && t !== state.user.uid ? `you: not paid yet${tName ? ` · ${money(st.buyIn)} to ${tName}` : ""}`
     : mine.out ? (mine.comeback ? "you: on a comeback" : "you: out") : `you: ${mine.strikes} of ${st.limit} strike${st.limit === 1 ? "" : "s"}`;
   const each = st.settled ? "settled" : st.refund ? "everyone's out" : `${money(st.share)} each${st.final ? "" : " if it ended now"}`;
   return h("button", { class: "pot-strip", type: "button", onclick: () => document.getElementById("potH")?.scrollIntoView({ behavior: "smooth", block: "start" }) },
     h("span", { class: "ps-amt" }, money(st.pot)), h("span", { class: "ps-txt" }, unpaid ? `pot once everyone pays · ${st.paid} of ${st.rows.length} paid` : `pot · ${each}`, you ? h("small", {}, you) : null), h("span", { class: "ps-go", "aria-hidden": "true" }, "›"));
 }
 
-// The pot: play money. Everyone on the board is in for the buy-in; strikes knock people out; survivors split it.
+// The pot: play money. Everyone who's paid is in for the buy-in; strikes knock people out; survivors split it.
 // Out at the limit with a comeback on: finish without another strike and get the comeback back (never a share).
 function strikeLabel(ch, s) {
   if (s.kind === "week") return `Week ending ${fmtDay(s.date)} · ${ch.goals?.[s.goalId]?.text || "a weekly goal"}`;
@@ -462,14 +465,16 @@ function renderPot(ch) {
       h("span", { class: "note" }, `${money(st.buyIn)} in · out at ${st.limit}` + (st.comeback ? ` · comeback ${money(st.comeback)}` : ""))),
     h("div", { class: "pot" },
       h("div", { class: "pot-top" }, h("div", { class: "pot-amt" }, money(st.pot), h("small", {}, `${st.paid} of ${st.rows.length} paid`)), h("div", { class: "pot-each" }, ...each)),
-      h("ol", { class: "pot-rows" }, st.rows.map((r) => h("li", { class: r.out ? (r.comeback ? "out cb" : "out") : null },
-        h("span", {}, h("b", {}, r.uid === state.user.uid ? "You" : r.name), r.paid ? h("small", { class: "paid" }, " · paid") : null),
+      h("ol", { class: "pot-rows" }, st.rows.map((r) => h("li", { class: !r.inPot ? "not-in" : r.out ? (r.comeback ? "out cb" : "out") : null },
+        h("span", {}, h("b", {}, r.uid === state.user.uid ? "You" : r.name), r.paid ? h("small", { class: "paid" }, " · paid") : !r.inPot ? h("small", { class: "not-in-tag" }, " · not in the pot") : null),
         chip(r)))),
       payLine(ch, st),
       renderPardons(ch, st),
       settleBlock(ch, st),
       help("How the pot works", [
-        `Everyone on the board is in for ${money(st.buyIn)}. Pay whoever's holding the money. The app never touches it.`,
+        L.treasurerOf(ch) ? `Everyone pays ${money(st.buyIn)} to the treasurer before the start. The app never touches the money.`
+          : `Everyone on the board is in for ${money(st.buyIn)}. Pay whoever's holding the money. The app never touches it.`,
+        L.treasurerOf(ch) ? `Not marked paid by the start? You stay on the board, but you're not in the pot: no share, and your ${money(st.buyIn)} isn't counted. Pay and you're back in.` : null,
         "A strike is a day you didn't finish every daily goal, or a weekly goal you came up short on. A day counts at noon the next day, so you have the morning to fix your ticks. Days off never count.",
         `${st.limit} strike${st.limit === 1 ? "" : "s"} and you're out. The players still in split the pot at the end. If nobody makes it, everyone gets their money back.`,
         st.comeback ? `Comeback: once you're out, keep going. Finish without another strike and you get ${money(st.comeback)} back. You can't win the pot that way, but it cuts your loss.` : null,
@@ -595,7 +600,7 @@ function payLine(ch, st) {
   const how = ch.pot?.payHow;
   return h("div", { class: "pay-line" },
     h("p", {}, h("b", {}, isT ? "You're the treasurer. " : `Treasurer: ${name}. `),
-      isT ? "You hold the money and mark who paid below." : mine && !mine.paid ? [`Pay ${money(st.buyIn)} to ${name}`, how && !payUrl(how) ? ` · ${how}` : "", "."] : mine?.paid ? "You're paid up." : ""),
+      isT ? "You hold the money and mark who paid below." : mine && !mine.paid ? [!mine.inPot ? "You're not in the pot until you pay. " : "", `Pay ${money(st.buyIn)} to ${name}`, how && !payUrl(how) ? ` · ${how}` : "", "."] : mine?.paid ? "You're paid up." : ""),
     // A link (Venmo, Cash App, PayPal) becomes one tap to pay; anything else stays as text above.
     payUrl(how) && !isT && mine && !mine.paid ? h("a", { class: "btn blaze pay-btn", href: payUrl(how), target: "_blank", rel: "noopener noreferrer" }, `Pay ${name} ${money(st.buyIn)}`) : null,
     isT && !st.settled ? h("details", { class: "help", open: true }, h("summary", {}, h("span", { class: "help-q", "aria-hidden": "true" }, "$"), "Mark who paid"),
@@ -923,7 +928,7 @@ function potField(ch) {
     } }, "Save pot"),
     pot.buyIn > 0 ? treasurerField(ch, ids) : null,
     pot.buyIn > 0 ? paidList(ch, ids) : null,
-    h("p", { class: "seg-note" }, "Play money. Everyone on the board is in. Survivors split the pot evenly at the end; if nobody makes it, everyone gets their buy-in back. Comeback: what someone who's out gets back if they finish without another strike (up to the buy-in; 0 = off). Buy-in 0 turns the pot off."));
+    h("p", { class: "seg-note" }, "Play money. With a treasurer, only players marked paid by the start are in the pot. Survivors split the pot evenly at the end; if nobody makes it, everyone gets their buy-in back. Comeback: what someone who's out gets back if they finish without another strike (up to the buy-in; 0 = off). Buy-in 0 turns the pot off."));
 }
 
 // Who holds the money. Separate from the owner on purpose: once someone else is treasurer, only they mark who paid.
@@ -1297,6 +1302,40 @@ function installCard() {
     h("div", { class: "callout-actions" }, h("button", { class: "mini-btn", type: "button", onclick: () => { markSeen("installDone"); render(); } }, "Done, hide this")));
 }
 
+// Before the start: just your to-dos, ticked as they're done, gone once they all are (Jason 2026-10-29, after Joseph
+// asked if the pot was real and how the goal check works). Each line jumps to where you do it.
+function todoCard(ch) {
+  const uid = state.user.uid;
+  const jump = (id) => () => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const items = [];
+  const t = L.treasurerOf(ch);
+  if (ch.pot?.buyIn > 0 && t && t !== uid) {
+    const name = state.players?.[t]?.name || "the treasurer";
+    items.push({ done: L.paidOf(ch.pot, uid), text: `Pay ${money(ch.pot.buyIn)} to ${name}`, sub: L.paidOf(ch.pot, uid) ? `${name} marked you paid` : `Not paid by the start = not in the pot`, go: jump("potH") });
+  }
+  const so = L.signoffFor(state.players, ch, uid);
+  items.push({ done: so.enough, text: `Set at least ${so.min} goals`, sub: `${so.count} of ${so.min} set`, go: openSettings });
+  const myVotes = me()?.votes || {};
+  const others = Object.keys(state.players || {}).filter((pid) => pid !== uid);
+  if (others.length) {
+    const ready = others.map((pid) => L.signoffFor(state.players, ch, pid)).filter((x) => x.enough);
+    const voted = ready.filter((x) => typeof myVotes[x.key] === "boolean").length;
+    items.push({ done: ready.length > 0 && voted === ready.length && ready.length === others.length, text: "Vote Fair or Too easy on each list",
+      sub: ready.length ? `${voted} of ${ready.length} voted${ready.length < others.length ? ` · ${others.length - ready.length} still setting goals` : ""}` : "Nobody else's list is ready yet", go: jump("soH") });
+  }
+  items.push({ done: so.approved, text: "Get your list approved", sub: so.approved ? (so.byOwner ? "Approved by the owner" : `${so.yes} of ${so.need} yes`) : !so.enough ? "Set your goals first" : `${so.yes} of ${so.need} yes so far${so.no ? ` · ${so.no} said too easy` : ""}`, go: jump("soH") });
+  if (items.every((i) => i.done)) return null;
+  const left = items.filter((i) => !i.done).length;
+  return h("section", { class: "callout todo", "aria-labelledby": "todoH" },
+    h("h2", { id: "todoH" }, `Before ${fmtDay(ch.start, { weekday: "long" })}`),
+    h("p", {}, `${left} thing${left === 1 ? "" : "s"} left. Tap one to do it.`),
+    h("ul", { class: "todo-list" }, items.map((i) => h("li", {}, h("button", { class: "todo-item" + (i.done ? " done" : ""), type: "button", onclick: i.go },
+      h("span", { class: "todo-tick", "aria-hidden": "true" }, i.done ? "\u2713" : ""),
+      h("span", { class: "todo-txt" }, h("b", {}, i.text), h("small", {}, i.sub)),
+      h("span", { class: "sr-only" }, i.done ? " (done)" : " (to do)"),
+      h("span", { class: "next-go", "aria-hidden": "true" }, "\u203a"))))));
+}
+
 // Shown once after joining: the whole game in three lines.
 function welcomeCard() {
   if (seen("welcomed")) return null;
@@ -1370,7 +1409,7 @@ function rulesFor(ch) {
       "Ticking is on your honor. Everyone sees everyone's goals and ticks.",
     ]),
     pot ? sec("The pot", [
-      `Buy-in: ${money(pot.buyIn)} each, paid up front to ${L.treasurerOf(ch) ? `the treasurer, ${state.players?.[L.treasurerOf(ch)]?.name || "?"}${pot.payHow ? ` (${pot.payHow})` : ""}` : "the treasurer"}. Only the treasurer marks who paid. The app never moves money.`,
+      `Buy-in: ${money(pot.buyIn)} each, paid up front to ${L.treasurerOf(ch) ? `the treasurer, ${state.players?.[L.treasurerOf(ch)]?.name || "?"}${pot.payHow ? ` (${pot.payHow})` : ""}` : "the treasurer"}. Only the treasurer marks who paid. Not paid by the start: you stay on the board but you're not in the pot until you pay. The app never moves money.`,
       "A strike is a day you didn't finish every daily goal, or a weekly goal you came up short on when the week locks.",
       `Out at ${lim} strike${lim === 1 ? "" : "s"}.`,
       "Everyone still in at the end splits the pot evenly. If nobody makes it, everyone gets their buy-in back.",
@@ -1409,7 +1448,7 @@ function openHelp(open = null) {
     q("target", "What's “your target”?", p("On a group goal, your own number, like 180 g of protein. Set it under Edit goals. Your own goals don't need one: the goal is the target.")),
     q("weekly", "How do weekly goals work?", p("Some goals are “N days a week” instead of every day. Weeks run from the challenge's start day (a Saturday start means Saturday to Friday). A short last week asks for its share. The bar shows how close you are.")),
     q("strike", "What's a strike?", p("A day you didn't finish every daily goal, or a weekly goal you came up short on when the week ends. A day only counts once it locks at noon the next day. Days off never count.")),
-    q("pot", "How does the pot work?", p("Everyone pays the buy-in up front to the treasurer (the pot shows who and how). Only the treasurer marks who paid. Too many strikes and you're out. Whoever is still in at the end splits it. If nobody makes it, everyone gets their money back.")),
+    q("pot", "How does the pot work?", p("Everyone pays the buy-in up front to the treasurer (the pot shows who and how). Only the treasurer marks who paid, and you're not in the pot until they do. Too many strikes and you're out. Whoever is still in at the end splits it. If nobody makes it, everyone gets their money back.")),
     q("comeback", "I'm out. Now what?", p("Keep going. If the challenge has a comeback, finish without another strike and you get that amount back. You can't win the pot that way, but it cuts your loss.")),
     q("pardon", "Can a strike be forgiven?", p("Yes. Under The Pot, Your strikes, tap Ask for a pardon. The others vote. More than half of them saying yes wipes it. You can't vote on your own.")),
     q("packpoints", "What are pack points?", p("Group goals score the pack as a team: 1 point for each day (or week) everyone hits one. The app counts it from everyone's ticks. Bragging rights for now; they don't change the pot.")),
