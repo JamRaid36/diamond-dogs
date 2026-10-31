@@ -372,7 +372,7 @@ function renderFinished(ch) {
     return { uid, name: p.name, pct, perfect: sc.filter((s) => s.perfect).length };
   }).sort((a, b) => b.pct - a.pct);
   return h("section", { class: "post" }, h("h3", {}, `${ch.name} · final`, h("small", {}, `${fmtDay(ch.start)} – ${fmtDay(ch.end)}`)),
-    h("ol", {}, totals.map((r, i) => h("li", { class: i === 0 ? "top" : null }, h("span", { class: "rank" }, String(i + 1)),
+    h("ol", {}, totals.map((r, i) => h("li", { class: i === 0 ? "lead" : null }, h("span", { class: "rank" }, String(i + 1)),
       h("div", {}, h("span", { class: "nm" }, r.name), r.perfect ? h("span", { class: "badge" }, `${r.perfect} perfect`) : null, h("div", { class: "bar" }, h("i", { style: `width:${r.pct}%` }))),
       h("span", { class: "pct" }, `${r.pct}%`)))),
     state.ms?.owner ? h("div", { class: "sheet-actions" }, h("button", { class: "btn blaze", type: "button", onclick: openCreate }, "Start the next challenge")) : null);
@@ -753,7 +753,7 @@ function boardPost(ch, r, live) {
   return h("article", { class: "post" + (live ? " live" : "") },
     h("h3", {}, h("span", {}, fmtDay(r.date), live ? h("span", { class: "live-chip" }, "Live") : null),
       h("small", {}, live ? "Open · still ticking" : `Day ${L.dayNumber(ch, r.date)}`)),
-    h("ol", {}, (r.rows || []).map((row, i) => h("li", { class: i === 0 && row.pct > 0 ? "top" : null },
+    h("ol", {}, (r.rows || []).map((row, i) => h("li", { class: i === 0 && row.pct > 0 ? "lead" : null },
       h("span", { class: "rank" }, String(i + 1)),
       h("div", {}, h("span", { class: "nm" }, row.name), row.perfect ? h("span", { class: "badge" }, "Perfect") : null, h("div", { class: "bar" }, h("i", { style: `width:${row.pct}%` }))),
       h("span", { class: "pct" }, row.of ? `${row.hit}/${row.of}` : "", row.wkOf ? h("small", { class: "wkn" }, `wk ${row.wkMet}/${row.wkOf}`) : null)))));

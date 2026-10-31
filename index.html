@@ -218,7 +218,7 @@ main { padding-block: 18px 48px; display: grid; gap: 28px; }
 .post ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .post li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 15px; }
 .post .rank { font: 800 16px/1 var(--display); color: var(--muted); text-align: center; }
-.post li.top .rank { color: var(--blaze); }
+.post li.lead .rank { color: var(--blaze); }
 .bar { height: 6px; border-radius: 3px; background: var(--bg-deep); overflow: hidden; margin-top: 5px; }
 .bar i { display: block; height: 100%; background: var(--hit); border-radius: 3px; }
 .post .pct { font: 500 13px/1 var(--mono); font-variant-numeric: tabular-nums; }
@@ -449,7 +449,7 @@ dialog.sheet::backdrop { background: oklch(0.08 0.02 262 / 0.65); }
 .sheet h2 { background: var(--gold); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .badge { color: oklch(0.15 0.03 260); background: var(--hit); }
 .live-chip { color: oklch(0.2 0.04 60); background: var(--gold); }
-.post li.top .rank { color: var(--blaze); text-shadow: 0 0 10px color-mix(in oklch, var(--blaze) 60%, transparent); }
+.post li.lead .rank { color: var(--blaze); text-shadow: 0 0 10px color-mix(in oklch, var(--blaze) 60%, transparent); }
 .cell { background: oklch(0.13 0.025 262); }
 .cell.l1 { background: color-mix(in srgb, var(--hit) 22%, var(--bg-deep)); }
 .cell.l2 { background: color-mix(in srgb, var(--hit) 45%, var(--bg-deep)); }
