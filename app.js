@@ -744,9 +744,10 @@ function renderGrid(ch) {
     }
   }
   return h("section", { "aria-labelledby": "gridH" },
-    h("div", { class: "sec-head" }, h("h2", { id: "gridH" }, "Last 7 days")),
+    h("div", { class: "sec-head" }, h("h2", { id: "gridH" }, "Last 7 days"), h("span", { class: "note" }, "Every-day goals only")),
     h("div", { class: "grid-card" }, grid,
-      h("div", { class: "legend", "aria-hidden": "true" }, "None", h("span", { class: "cell l1" }), h("span", { class: "cell l2" }), h("span", { class: "cell l3" }), h("span", { class: "cell l4" }), "All")));
+      h("div", { class: "legend", "aria-hidden": "true" }, "None", h("span", { class: "cell l1" }), h("span", { class: "cell l2" }), h("span", { class: "cell l3" }), h("span", { class: "cell l4" }), "All"),
+      h("p", { class: "legend-note" }, "Weekly goals (like Lift 2 days a week) count when the week ends, so they don't change these colors.")));
 }
 
 function boardPost(ch, r, live) {
@@ -771,7 +772,7 @@ function renderBoard(ch) {
   const live = L.editableDates(ch, now()).filter((d) => !L.isSkip(ch, d)).map((d) => L.buildResult(state.players, ch, d, now()));
   const limit = state.boardLimit || 3;
   const shown = finals.slice(0, limit);
-  const head = h("div", { class: "sec-head" }, h("h2", { id: "boardH" }, "Daily Board"), h("span", { class: "note" }, "Live all day · locks at noon next day"));
+  const head = h("div", { class: "sec-head" }, h("h2", { id: "boardH" }, "Daily Board"), h("span", { class: "note" }, "Scores every-day goals · locks at noon next day"));
   if (!live.length && !shown.length) {
     const msg = t < ch.start ? [h("b", {}, `Scores start ${fmtDay(ch.start, { weekday: "long" })}. `), "The board goes live the moment anyone ticks."]
       : [h("b", {}, "Nothing to show yet. "), "The board fills in as the pack ticks."];
@@ -1569,7 +1570,7 @@ function openHelp(open = null) {
     q("comeback", "I'm out. Now what?", p("Keep going. If the challenge has a comeback, finish without another strike and you get that amount back. You can't win the pot that way, but it cuts your loss.")),
     q("pardon", "Can a strike be forgiven?", p("Yes. Under The Pot, Your strikes, tap Ask for a pardon. The others have 48 hours to vote. More than half saying yes wipes it right away; when time's up, the players who voted decide. You can't vote on your own.")),
     q("packpoints", "What are pack points?", p("Group goals score the pack as a team: 1 point for each day (or week) everyone hits one. The app counts it from everyone's ticks. Bragging rights for now; they don't change the pot.")),
-    q("board", "What's the Daily Board?", p("Each day's final scores, posted once the day locks at noon. The top of the list is a live view of today.")),
+    q("board", "What's the Daily Board?", p("Each day's final scores, posted once the day locks at noon. The top of the list is a live view of today. A day's score counts your every-day goals only, so 1/1 means you did your one every-day goal. Weekly goals show underneath as wk, like wk 0/3, and count when the week ends.")),
     q("chat", "What's Trash Talk?", p("A group message board. Everyone in the group sees it. You can delete your own posts.")),
     q("home", "How do I put it on my home screen?",
       ...(kind !== "other" ? [p("On this phone:"), stepsList(browserKey(), ADD)]
