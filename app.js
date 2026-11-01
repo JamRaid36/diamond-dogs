@@ -69,7 +69,7 @@ function viewDate() {
 function packOrder(ch, date) {
   const ids = Object.keys(state.players || {}).filter((uid) => L.joinedBy(state.players[uid], date) || uid === state.user.uid);
   return ids.sort((a, b) => {
-    const sa = L.dayScore(state.players[a], L.chFor(ch, a), date), sb = L.dayScore(state.players[b], L.chFor(ch, b), date);
+    const sa = L.liveScore(state.players[a], L.chFor(ch, a), date, now()), sb = L.liveScore(state.players[b], L.chFor(ch, b), date, now());
     return sb.pct - sa.pct || sb.hit - sa.hit || (state.players[a].name || "").localeCompare(state.players[b].name || "");
   });
 }
@@ -795,11 +795,11 @@ function renderGrid(ch) {
     const p = state.players[uid];
     grid.append(h("span", { class: "who", role: "rowheader" }, p.name || "Player"));
     for (const d of dates) {
-      const s = L.dayScore(p, L.chFor(ch, uid), d);
+      const s = L.liveScore(p, L.chFor(ch, uid), d, now()); // an unearned weekly-only day stays empty (Tg 7664)
       if (L.isSkip(ch, d)) { grid.append(h("span", { class: "cell off" + (d === t ? " today" : ""), role: "cell", title: `${fmtDay(d)}: day off`, "aria-label": `${p.name}, ${fmtDay(d)}: day off` })); continue; }
       const lvl = !s.of || !L.joinedBy(p, d) ? 0 : s.pct === 100 ? 4 : s.pct >= 67 ? 3 : s.pct >= 34 ? 2 : s.pct > 0 ? 1 : 0;
       const wkOnly = !s.of && L.joinedBy(p, d); // no every-day goals that day: judged by the week, so not shown as a miss
-      const what = wkOnly ? "weekly goals only" : `${s.hit} of ${s.of}`;
+      const what = s.pending ? "not won yet" : wkOnly ? "weekly goals only" : `${s.hit} of ${s.of}`;
       grid.append(h("span", { class: `cell l${lvl}` + (wkOnly ? " wkonly" : "") + (d === t ? " today" : ""), role: "cell", title: `${p.name}, ${fmtDay(d)}: ${what}`, "aria-label": `${p.name}, ${fmtDay(d)}: ${what}` }));
     }
   }
