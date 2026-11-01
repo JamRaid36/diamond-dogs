@@ -17,6 +17,7 @@ function seed(scenario, now) {
   const start = d(-5);
   const store = { chat: {}, players: {}, challenges: {}, results: {}, members: { ownerEmail: "you@example.com", emails: ["you@example.com", "sam@example.com", "riley@example.com"] } };
   if (scenario === "empty") return store;
+  if (scenario === "pack") return seedPack(store, now);
   const ch = {
     name: "Fall Cut", start: scenario === "upcoming" ? d(2) : start, end: scenario === "upcoming" ? d(23) : d(15),
     createdBy: "me", createdAt: now - 6 * 86400000, // created on its start day: no catch-up window in the demo
@@ -111,6 +112,32 @@ function seed(scenario, now) {
   if (!["upcoming", "catchup", "today", "lostgoals", "showcase", "goalcheck", "goalcheckm", "invited", "season1"].includes(scenario)) {
     const chWithId = Object.assign({ id: "c1" }, ch);
     for (let i = -5; i <= -2; i++) store.results[d(i)] = L.buildResult(store.players, chWithId, d(i), now);
+  }
+  return store;
+}
+
+// The real pack, copied by hand from prod screenshots (Jason 2026-10-31, Tg 7586: "make sure dev has the same data as
+// prod"): same names, goals, cadences, pot and start, and day 1's ticks as of Sat Oct 31, 9:15 PM. Dev is public; Jason
+// OK'd real names (Tg 7590). No emails, no Trash Talk. Days after Oct 31 start empty, like a fresh week.
+const PACK_NAMES = { me: "Jay", costa: "Costa", ben: "Ben", daniel: "Daniel Gilchrist", joseph: "Joseph" };
+function seedPack(store, now) {
+  const start = "2026-10-31";
+  const g = (text, order, perWeek) => ({ text, addedOn: start, closedOn: null, order, perWeek: perWeek || null });
+  const goals = {
+    me: { j1: g("Protein 130 g", 1), j2: g("Lift", 2, 2), j3: g("Calories 2k or less", 3, 5), j4: g("Cardio/Walking", 4, 5) },
+    costa: { c1: g("120g protein", 1), c2: g("Lift", 2, 5), c3: g("20 min of cardio", 3, 3), c4: g("A chapter of proverbs", 4, 5) },
+    ben: { b1: g("10k + steps", 1, 6), b2: g("20 min Workout/mobility", 2, 6), b3: g("Wake up by 5:30a", 3, 6), b4: g("150+ grams of Protein", 4, 6), b5: g("2300 calories or less", 5, 5) },
+    daniel: { d1: g("Log Calories in Macros", 1), d2: g("Less than 2300 calories", 2, 5), d3: g("20 minute bike ride", 3, 2), d4: g("Go to the gym", 4, 2), d5: g("Stretch Before Bed", 5, 5) },
+    joseph: { o1: g("20 Minute Workout", 1, 5), o2: g("140g of Protein", 2, 6), o3: g("6am Wake-Up", 3, 5), o4: g("Electrolyte Drink", 4, 6), o5: g("Creatine", 5, 6) },
+  };
+  const day1 = { me: ["j1", "j4"], costa: ["c1", "c4"], ben: ["b1", "b2", "b3", "b4"], daniel: ["d1", "d2", "d5"], joseph: ["o1", "o2", "o4", "o5"] };
+  const created = Date.UTC(2026, 9, 31, 16); // Sat Oct 31, 9 AM PDT
+  store.challenges.c1 = { name: "Alpha Pack Season 1", start, end: L.endForWeeks(start, 3), createdBy: "me", createdAt: Math.min(created, now),
+    goals: {}, playerGoals: goals, minGoals: 3, pot: { buyIn: 100, strikes: 2, comeback: 50, paid: { me: true, costa: true, ben: true, daniel: true, joseph: true } } };
+  store.members.emails = Object.keys(PACK_NAMES).map((u) => (u === "me" ? "you" : u) + "@example.com");
+  for (const uid of Object.keys(PACK_NAMES)) {
+    const days = { [start]: Object.fromEntries(day1[uid].map((id) => [id, true])) };
+    store.players[uid] = { name: PACK_NAMES[uid], joinedAt: Math.min(created, now), days };
   }
   return store;
 }

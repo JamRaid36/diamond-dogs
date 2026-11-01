@@ -133,12 +133,12 @@ function renderInner() {
   ].filter(Boolean));
 }
 
-const DEV_SCENES = [["season1", "Season 1: you, the owner (send the invite)"], ["invited", "Season 1: a new player, from the invite"], ["active", "Mid-challenge (owner)"], ["goalcheck", "Before the start (owner)"], ["goalcheckm", "Before the start (player)"],
+const DEV_SCENES = [["pack", "The real pack (copied from prod, Oct 31)"], ["season1", "Season 1: you, the owner (send the invite)"], ["invited", "Season 1: a new player, from the invite"], ["active", "Mid-challenge (owner)"], ["goalcheck", "Before the start (owner)"], ["goalcheckm", "Before the start (player)"],
   ["pardon", "Pardon vote"], ["pardonyes", "Pardon: time's up, pardoned (Riley's view)"], ["pardonno", "Pardon: time's up, tie, strike stands (Riley's view)"], ["treasurer", "Treasurer (owner view)"], ["treasurerm", "Treasurer (his view)"], ["over", "Finished, settle the pot"],
   ["member", "A player, not the owner"], ["empty", "Brand-new player"], ["signedout", "Signed out"]];
 function demoBanner() {
   if (window.DD_DEV) {
-    const cur = new URLSearchParams(location.search).get("demo") || "season1";
+    const cur = new URLSearchParams(location.search).get("demo") || "pack";
     return h("div", { class: "dev-bar", role: "note" }, h("b", {}, "DEV PREVIEW"), " · sample players, nothing is saved. Check it, then tell Leo \u201cship it\u201d.",
       h("label", { class: "tlabel", for: "devScene", style: "display:block;margin-top:8px" }, "Try a situation"),
       (() => { const sel = h("select", { id: "devScene", class: "cad", onchange: (e) => { location.search = "?demo=" + e.target.value; } },
@@ -1778,7 +1778,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden && st
 async function boot() {
   const params = new URLSearchParams(location.search);
   // The dev preview site (config sets DD_DEV, no Firebase) always runs on sample data: real data can't be touched.
-  const demo = params.get("demo") || (window.DD_DEV ? "season1" : null);
+  const demo = params.get("demo") || (window.DD_DEV ? "pack" : null);
   try {
     if (demo) {
       const { createDemoBackend } = await import("./backend-demo.js");
