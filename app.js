@@ -775,7 +775,7 @@ function renderGrid(ch) {
     h("div", { class: "sec-head" }, h("h2", { id: "gridH" }, "Last 7 days"), h("span", { class: "note" }, "Full square = day won")), null,
     h("div", { class: "grid-card" }, grid,
       h("div", { class: "legend", "aria-hidden": "true" }, "None", h("span", { class: "cell l1" }), h("span", { class: "cell l2" }), h("span", { class: "cell l3" }), h("span", { class: "cell l4" }), "All"),
-      h("p", { class: "legend-note" }, "A full square = every daily goal done and every weekly goal (like Lift 2 days a week) still makeable this week. You only lose a day to a weekly goal once the week can't be finished.")));
+      h("p", { class: "legend-note" }, "A full square = every daily goal done and every weekly goal (like Lift 2 days a week) still makeable this week. A weekly goal that can't be finished costs you that one day, then stops counting for the rest of the week.")));
 }
 
 function boardPost(ch, r, live) {
@@ -1548,7 +1548,7 @@ function rulesFor(ch) {
       `${ch.name}: ${fmtDay(ch.start, { month: "short", day: "numeric" })} to ${fmtDay(ch.end, { month: "short", day: "numeric" })} (${L.challengeLength(ch)} days).`,
       "Days run midnight to midnight, Pacific time.",
       "You can tick or fix a day until noon the next day. Then it locks for good and posts to the Daily Board.",
-      "You win a day when every daily goal is done and every weekly goal can still make its number by the end of the week. Your score is days won out of days played.",
+      "You win a day when every daily goal is done and every weekly goal can still make its number by the end of the week. If a weekly goal can't be finished, you lose that one day and take a strike, then it stops counting against your days that week. Your score is days won out of days played.",
       offs.length ? `Days off: ${offs.map((d) => fmtDay(d, { month: "short", day: "numeric" })).join(", ")}. Nothing counts on them.` : null,
     ]),
     sec("The goals", [
@@ -1599,12 +1599,12 @@ function openHelp(open = null) {
     q("goalcheck", "What's the goal check?", p("Before the start, the pack looks at each list and taps Fair or Too easy. A list needs a yes from more than half of the others, or the owner's OK. Change a goal and its votes reset. Each list needs a minimum number of goals; a day with fewer counts as a strike.")),
     q("target", "What's “your target”?", p("On a group goal, your own number, like 180 g of protein. Set it under Edit goals. Your own goals don't need one: the goal is the target.")),
     q("weekly", "How do weekly goals work?", p("Some goals are “N days a week” instead of every day. Weeks run from the challenge's start day (a Saturday start means Saturday to Friday). A short last week asks for its share. The bar shows how close you are. Skipping one is fine while the week can still be made: you still win the day. Once it can't (say 4 cardio days needed, 3 days left), it's a strike that day, and the rest of that week's days can't be won.")),
-    q("strike", "What's a strike?", p("A day you didn't finish every daily goal, or a weekly goal that can't make its number this week anymore, like needing 4 cardio days with 3 left. That one strikes the day it becomes impossible, once per week. A day only counts once it locks at noon the next day, and you can ask for a pardon on any strike. Days off never count.")),
+    q("strike", "What's a strike?", p("A day you didn't finish every daily goal, or a weekly goal that can't make its number this week anymore, like needing 4 cardio days with 3 left. That one strikes the day it becomes impossible, once per week, and costs you only that day. After that it stops counting against your days for the rest of the week. A day only counts once it locks at noon the next day, and you can ask for a pardon on any strike. Days off never count.")),
     q("pot", "How does the pot work?", p("Everyone pays the buy-in up front to the treasurer (the pot shows who and how). Only the treasurer marks who paid, and you're not in the pot until they do. Too many strikes and you're out. Whoever is still in at the end splits it. If nobody makes it, everyone gets their money back.")),
     q("comeback", "I'm out. Now what?", p("Keep going. If the challenge has a comeback, finish without another strike and you get that amount back. You can't win the pot that way, but it cuts your loss.")),
     q("pardon", "Can a strike be forgiven?", p("Yes. Under The Pot, Your strikes, tap Ask for a pardon. The others have 48 hours to vote. More than half saying yes wipes it right away; when time's up, the players who voted decide. You can't vote on your own.")),
     q("packpoints", "What are pack points?", p("Group goals score the pack as a team: 1 point for each day (or week) everyone hits one. The app counts it from everyone's ticks. Bragging rights for now; they don't change the pot.")),
-    q("board", "What's the Daily Board?", p("Each day's results, posted once the day locks at noon. The top is a live view of today. You win a day when every daily goal is done and every weekly goal can still make its number by the end of the week. The number is days won out of days played: on track since day 1 and it's 1/1, then 2/2, and so on. A day you haven't finished doesn't count against you until it locks.")),
+    q("board", "What's the Daily Board?", p("Each day's results, posted once the day locks at noon. The top is a live view of today. You win a day when every daily goal is done and every weekly goal can still make its number by the end of the week. The number is days won out of days played: on track since day 1 and it's 1/1, then 2/2, and so on. A day you haven't finished doesn't count against you until it locks. A weekly goal that can't be finished costs one day, not the rest of the week.")),
     q("chat", "What's Trash Talk?", p("A group message board. Everyone in the group sees it. You can delete your own posts.")),
     q("home", "How do I put it on my home screen?",
       ...(kind !== "other" ? [p("On this phone:"), stepsList(browserKey(), ADD)]

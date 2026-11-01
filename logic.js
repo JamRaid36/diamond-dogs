@@ -310,6 +310,18 @@
     return pr.done + left >= pr.need;
   }
 
+  // Was this weekly goal already impossible on a counted day earlier in date's week? (Impossible stays impossible:
+  // each day adds at most one tick and takes one day off what's left.)
+  function lostEarlier(player, ch, goal, date) {
+    var ws = weekStart(date, ch);
+    for (var d = ws > ch.start ? ws : ch.start; d < date; d = addDays(d, 1)) {
+      if (isSkip(ch, d) || !onRecord(player, ch, d)) continue;
+      if (!weeklyGoals(ch, d).some(function (g) { return g.id === goal.id; })) continue;
+      if (!weekStillMakeable(player, ch, goal, d)) return true;
+    }
+    return false;
+  }
+
   // A day's score (Jason 2026-10-31, Tg 7568/7594/7598): each every-day goal is a point, and the weekly goals together
   // are one more point, "on track", while every one of them can still make its number by the week's end. "You only lose
   // a day if completing the week is impossible." onTrack is set when the player has weekly goals that day.
@@ -320,9 +332,13 @@
     var of = goals.length;
     var out = {};
     if (weekly.length) {
-      var ok = weekly.every(function (g) { return weekStillMakeable(player, ch, g, date); });
+      // Strike once, then stop costing days (Jason 2026-10-31, Tg 7613): a weekly goal that was already impossible on an
+      // earlier counted day this week has had its strike day, so it drops out of the on-track point for the rest of the
+      // week. onTrack stays honest for display: false while any weekly goal can't make its number.
+      var live = weekly.filter(function (g) { return !lostEarlier(player, ch, g, date); });
+      var ok = live.every(function (g) { return weekStillMakeable(player, ch, g, date); });
       of++; if (ok) hit++;
-      out.onTrack = ok;
+      out.onTrack = weekly.every(function (g) { return weekStillMakeable(player, ch, g, date); });
     }
     return Object.assign({ hit: hit, of: of, pct: of ? Math.round((hit / of) * 100) : 0, perfect: of > 0 && hit === of }, out);
   }
