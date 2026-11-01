@@ -343,6 +343,16 @@
     return Object.assign({ hit: hit, of: of, pct: of ? Math.round((hit / of) * 100) : 0, perfect: of > 0 && hit === of }, out);
   }
 
+  // Does this day count as won yet? A locked day: if it was perfect. An open day only once it's earned (Jason
+  // 2026-11-01, Tg 7622: "how is it that anybody has 2/2? We've only just finished day 1"): every daily goal ticked,
+  // or, for a weekly-only day, at least one goal ticked. Otherwise a weekly-only player wins each day at midnight.
+  // No nowMs: no gating (callers that only ask "was it perfect").
+  function dayWon(player, ch, d, nowMs) {
+    if (!dayScore(player, ch, d).perfect) return false;
+    if (nowMs == null || isFinal(d, nowMs, ch) || dailyGoals(ch, d).length) return true;
+    return activeGoals(ch, d).some(function (g) { return isDone(player, d, g.id); });
+  }
+
   // Days won / days played through `date` (Jason 2026-10-31, Tg 7600: "only done 1 day so far so everyone that can
   // still complete the week should be 1/1 and tomorrow 2/2"). A day is won when it's perfect (dayScore). A day counts as
   // played once it's won or once it locks, so an open day you haven't finished yet never shows as a loss. Days off and
@@ -353,7 +363,7 @@
     var end = date < ch.end ? date : ch.end;
     for (var d = ch.start; d <= end; d = addDays(d, 1)) {
       if (isSkip(ch, d) || !onRecord(player, ch, d)) continue;
-      if (dayScore(player, ch, d).perfect) { won++; played++; }
+      if (dayWon(player, ch, d, nowMs)) { won++; played++; }
       else if (isFinal(d, nowMs, ch)) played++;
     }
     return { won: won, played: played };
@@ -381,11 +391,11 @@
   }
 
   // Perfect-day streak: consecutive days with every active goal done, same today/yesterday rule.
-  function perfectStreak(player, ch, today) {
-    var day = dayScore(player, ch, today).perfect ? today : addDays(today, -1);
+  function perfectStreak(player, ch, today, nowMs) {
+    var day = dayWon(player, ch, today, nowMs) ? today : addDays(today, -1);
     var n = 0;
     while (isSkip(ch, day)) day = addDays(day, -1);
-    while (inChallenge(ch, day) && dayScore(player, ch, day).perfect) {
+    while (inChallenge(ch, day) && dayWon(player, ch, day, nowMs)) {
       n++;
       day = addDays(day, -1);
       while (isSkip(ch, day)) day = addDays(day, -1);
@@ -1041,7 +1051,7 @@
     TZ: TZ, FINAL_HOUR: FINAL_HOUR, MAX_GOALS: MAX_GOALS, MAX_POST: MAX_POST, cleanPost: cleanPost,
     pacificDate: pacificDate, pacificHour: pacificHour, addDays: addDays, daysBetween: daysBetween, isDate: isDate,
     inChallenge: inChallenge, goalList: goalList, activeGoals: activeGoals, isLocked: isLocked, isDone: isDone,
-    dayScore: dayScore, daysWon: daysWon, dailyPerfect: dailyPerfect, weekStillMakeable: weekStillMakeable, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
+    dayScore: dayScore, daysWon: daysWon, dayWon: dayWon, dailyPerfect: dailyPerfect, weekStillMakeable: weekStillMakeable, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
     strikesFor: strikesFor, potStatus: potStatus, potPatch: potPatch, paidPatch: paidPatch,
     groupScore: groupScore, snapshotOf: snapshotOf, snapshotParts: snapshotParts, assembleSnapshot: assembleSnapshot, backupComplete: backupComplete, backupPlan: backupPlan, BACKUP_KEEP: BACKUP_KEEP, endForWeeks: endForWeeks, weeksOf: weeksOf, chFor: chFor, ownView: ownView, ownPatch: ownPatch, ownGoals: ownGoals, MAX_PERSONAL: MAX_PERSONAL, ownGoalsWithout: ownGoalsWithout, canAddOwn: canAddOwn,
     minGoalsOn: minGoalsOn, goalSetKey: goalSetKey, signoffFor: signoffFor, signoffVotePatch: signoffVotePatch, ownerSignoffPatch: ownerSignoffPatch, minGoalsPatch: minGoalsPatch,

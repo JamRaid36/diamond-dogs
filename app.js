@@ -265,7 +265,7 @@ function renderYou(ch) {
   const openDays = L.editableDates(ch, now());
   const catchUp = L.catchUpOpen(ch, now());
   const dayLabel = (d) => d === t ? "Today" : d === L.addDays(t, -1) ? "Yesterday" : fmtDay(d, { weekday: "short" });
-  const perfectStreak = L.perfectStreak(p, ch, t);
+  const perfectStreak = L.perfectStreak(p, ch, t, now());
   const off = L.isSkip(ch, date);
   // Each every-day goal is a point; the weekly goals together are one more, "on track" (logic.dayScore, Tg 7598).
   const dailyLeft = goals.filter((g) => !L.isDone(p, date, g.id)).length;
@@ -710,7 +710,7 @@ function packTag(ch, chAll, uid, date, t) {
   const s = L.dayScore(p, ch, date);
   const open = state.expanded.has(uid);
   const isMe = uid === state.user.uid;
-  const ps = L.perfectStreak(p, ch, date);
+  const ps = L.perfectStreak(p, ch, date, now());
   const off = L.isSkip(ch, date);
   const wk = L.weekScore(p, ch, date);
   const dw = L.daysWon(p, ch, date, now()); // the card's number: days won / days played (Tg 7600)
