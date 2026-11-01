@@ -294,11 +294,59 @@
     return n;
   }
 
+  // Can this weekly goal still hit its number after `date`? Ticks through `date`, plus every day left in the week
+  // (counted like weekProgress: no days off, goal active, on the player's record) covers what's still needed.
+  function weekStillMakeable(player, ch, goal, date) {
+    var pr = weekProgress(player, ch, goal, date);
+    if (pr.need === 0 || pr.done >= pr.need) return true;
+    var left = 0;
+    for (var d = addDays(date, 1); d <= addDays(pr.weekStart, 6); d = addDays(d, 1)) {
+      if (isSkip(ch, d) && inChallenge(ch, d)) continue;
+      if (!inChallenge(ch, d)) continue;
+      if (!activeGoals(ch, d).some(function (g) { return g.id === goal.id; })) continue;
+      if (!onRecord(player, ch, d)) continue;
+      left++;
+    }
+    return pr.done + left >= pr.need;
+  }
+
+  // A day's score (Jason 2026-10-31, Tg 7568/7594/7598): each every-day goal is a point, and the weekly goals together
+  // are one more point, "on track", while every one of them can still make its number by the week's end. "You only lose
+  // a day if completing the week is impossible." onTrack is set when the player has weekly goals that day.
+  // Strikes don't use this: a day strike is still a missed every-day goal (strikesFor), a weekly miss strikes at week lock.
   function dayScore(player, ch, date) {
-    var goals = dailyGoals(ch, date);
+    var goals = dailyGoals(ch, date), weekly = weeklyGoals(ch, date);
     var hit = goals.filter(function (g) { return isDone(player, date, g.id); }).length;
     var of = goals.length;
-    return { hit: hit, of: of, pct: of ? Math.round((hit / of) * 100) : 0, perfect: of > 0 && hit === of };
+    var out = {};
+    if (weekly.length) {
+      var ok = weekly.every(function (g) { return weekStillMakeable(player, ch, g, date); });
+      of++; if (ok) hit++;
+      out.onTrack = ok;
+    }
+    return Object.assign({ hit: hit, of: of, pct: of ? Math.round((hit / of) * 100) : 0, perfect: of > 0 && hit === of }, out);
+  }
+
+  // Days won / days played through `date` (Jason 2026-10-31, Tg 7600: "only done 1 day so far so everyone that can
+  // still complete the week should be 1/1 and tomorrow 2/2"). A day is won when it's perfect (dayScore). A day counts as
+  // played once it's won or once it locks, so an open day you haven't finished yet never shows as a loss. Days off and
+  // days before the player was on the record don't count.
+  function daysWon(player, ch, date, nowMs) {
+    var won = 0, played = 0;
+    if (!ch || !isDate(ch.start)) return { won: 0, played: 0 };
+    var end = date < ch.end ? date : ch.end;
+    for (var d = ch.start; d <= end; d = addDays(d, 1)) {
+      if (isSkip(ch, d) || !onRecord(player, ch, d)) continue;
+      if (dayScore(player, ch, d).perfect) { won++; played++; }
+      else if (isFinal(d, nowMs, ch)) played++;
+    }
+    return { won: won, played: played };
+  }
+
+  // Strike rule for a day: every every-day goal done (weekly goals strike once, when their week locks).
+  function dailyPerfect(player, ch, date) {
+    var goals = dailyGoals(ch, date);
+    return goals.length > 0 && goals.every(function (g) { return isDone(player, date, g.id); });
   }
 
   // Current streak for one goal. Today counts if done; if today isn't done yet the streak through yesterday is
@@ -406,7 +454,8 @@
       var pc = chFor(ch, uid);
       var s = dayScore(p, pc, date);
       var w = weekScore(p, pc, date);
-      return { uid: uid, name: (p && p.name) || "Player", hit: s.hit, of: s.of, pct: s.pct, perfect: s.perfect, wkMet: w.met, wkOf: w.of };
+      var dw = daysWon(p, pc, date, nowMs);
+      return { uid: uid, name: (p && p.name) || "Player", hit: s.hit, of: s.of, pct: s.pct, perfect: s.perfect, wkMet: w.met, wkOf: w.of, won: dw.won, played: dw.played };
     }).filter(function (r) { return joinedBy(players[r.uid], date); });
     rows.sort(function (a, b) { return b.pct - a.pct || b.hit - a.hit || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0); });
     return { date: date, challengeId: ch.id, rows: rows, createdAt: nowMs };
@@ -659,28 +708,24 @@
       // strike-proof. The minimum only bites when each player sets their own; group-only challenges count as met.
       if (activeGoals(ch, d).length < minGoalsOn(ch)) { out.push({ kind: "day", date: d, nogoal: true }); continue; }
       if (!dailyGoals(ch, d).length) continue; // weekly-only that day: judged by the week
-      if (!dayScore(player, ch, d).perfect) out.push({ kind: "day", date: d });
+      if (!dailyPerfect(player, ch, d)) out.push({ kind: "day", date: d });
     }
     // Weekly goals are judged on the player's own record: only days they were in, and the target can't
     // exceed the days the goal was active for them. Each day off in the week takes one off the target.
+    // A weekly goal strikes once per week, dated the first locked day its number became impossible (Jason 2026-10-31,
+    // Tg 7600: "they need 4 days of cardio but they only have 3 days left ... they would then have a strike"). Before,
+    // the strike waited for the week's last day; same count, it just lands as soon as the week can't be made.
     for (var ws = ch.start; ws <= ch.end; ws = addDays(ws, 7)) {
       var last = addDays(ws, 6) < ch.end ? addDays(ws, 6) : ch.end;
-      if (!isFinal(last, nowMs, ch)) continue;
-      var off = 0, tally = Object.create(null); // keyed by goal id: no inherited names ("constructor")
-      for (var x = ws > ch.start ? ws : ch.start; x <= last; x = addDays(x, 1)) {
-        if (isSkip(ch, x)) { off++; continue; }
-        if (!onRecord(player, ch, x)) continue;
-        activeGoals(ch, x).filter(isWeekly).forEach(function (g) {
-          var t = tally[g.id] || (tally[g.id] = { g: g, days: 0, done: 0 });
-          t.days++;
-          if (isDone(player, x, g.id)) t.done++;
+      var struck = Object.create(null); // keyed by goal id: no inherited names ("constructor")
+      for (var x = ws > ch.start ? ws : ch.start; x <= last && isFinal(x, nowMs, ch); x = addDays(x, 1)) {
+        if (isSkip(ch, x) || !onRecord(player, ch, x)) continue;
+        weeklyGoals(ch, x).forEach(function (g) {
+          if (struck[g.id] || weekStillMakeable(player, ch, g, x)) return;
+          struck[g.id] = true;
+          out.push({ kind: "week", date: x, goalId: g.id });
         });
       }
-      Object.keys(tally).forEach(function (id) {
-        var t = tally[id];
-        var need = weekNeed(t.g.perWeek, off, t.days);
-        if (need > 0 && t.done < need) out.push({ kind: "week", date: last, goalId: id });
-      });
     }
     return out;
   }
@@ -980,7 +1025,7 @@
     TZ: TZ, FINAL_HOUR: FINAL_HOUR, MAX_GOALS: MAX_GOALS, MAX_POST: MAX_POST, cleanPost: cleanPost,
     pacificDate: pacificDate, pacificHour: pacificHour, addDays: addDays, daysBetween: daysBetween, isDate: isDate,
     inChallenge: inChallenge, goalList: goalList, activeGoals: activeGoals, isLocked: isLocked, isDone: isDone,
-    dayScore: dayScore, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
+    dayScore: dayScore, daysWon: daysWon, dailyPerfect: dailyPerfect, weekStillMakeable: weekStillMakeable, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
     strikesFor: strikesFor, potStatus: potStatus, potPatch: potPatch, paidPatch: paidPatch,
     groupScore: groupScore, snapshotOf: snapshotOf, snapshotParts: snapshotParts, assembleSnapshot: assembleSnapshot, backupComplete: backupComplete, backupPlan: backupPlan, BACKUP_KEEP: BACKUP_KEEP, endForWeeks: endForWeeks, weeksOf: weeksOf, chFor: chFor, ownView: ownView, ownPatch: ownPatch, ownGoals: ownGoals, MAX_PERSONAL: MAX_PERSONAL, ownGoalsWithout: ownGoalsWithout, canAddOwn: canAddOwn,
     minGoalsOn: minGoalsOn, goalSetKey: goalSetKey, signoffFor: signoffFor, signoffVotePatch: signoffVotePatch, ownerSignoffPatch: ownerSignoffPatch, minGoalsPatch: minGoalsPatch,
