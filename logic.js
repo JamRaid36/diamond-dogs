@@ -294,38 +294,11 @@
     return n;
   }
 
-  // A weekly goal is due today when the week can't be made without it: ticks still needed >= days left, today
-  // included. Days left count the same way weekProgress does (no days off, goal active, on the player's record).
-  function weeklyDueOn(player, ch, goal, date) {
-    var start = weekStart(date, ch);
-    var need = weekProgress(player, ch, goal, date).need;
-    var before = 0, left = 0;
-    for (var d = start; d <= addDays(start, 6); d = addDays(d, 1)) {
-      if (isSkip(ch, d) && inChallenge(ch, d)) continue;
-      if (!activeGoals(ch, d).some(function (g) { return g.id === goal.id; })) continue;
-      if (!onRecord(player, ch, d)) continue;
-      if (d < date) { if (isDone(player, d, goal.id)) before++; } else left++;
-    }
-    return need - before > 0 && need - before >= left;
-  }
-
-  // What a day scores: everything in play that day (Jason 2026-10-31, Tg 7527/7543, Ben's "perfect circles"). Every-day
-  // goals always count. A weekly goal counts the day it's ticked, or when it's due (the week can't be made without
-  // today). An unticked weekly goal with room left in the week sits out, so skipping it isn't held against the day.
-  // of 0 = nothing in play: a rest day, never perfect, and streaks jump it.
   function dayScore(player, ch, date) {
-    var goals = dailyGoals(ch, date).concat(weeklyGoals(ch, date).filter(function (g) {
-      return isDone(player, date, g.id) || weeklyDueOn(player, ch, g, date);
-    }));
+    var goals = dailyGoals(ch, date);
     var hit = goals.filter(function (g) { return isDone(player, date, g.id); }).length;
     var of = goals.length;
     return { hit: hit, of: of, pct: of ? Math.round((hit / of) * 100) : 0, perfect: of > 0 && hit === of };
-  }
-
-  // Strikes judge a day on its every-day goals only; weekly goals are struck once, when their week locks.
-  function dailyPerfect(player, ch, date) {
-    var goals = dailyGoals(ch, date);
-    return goals.length > 0 && goals.every(function (g) { return isDone(player, date, g.id); });
   }
 
   // Current streak for one goal. Today counts if done; if today isn't done yet the streak through yesterday is
@@ -343,17 +316,15 @@
     return n;
   }
 
-  // Perfect-day streak: consecutive perfect days, same today/yesterday rule. Days off and rest days (nothing in
-  // play) are jumped, never counted.
+  // Perfect-day streak: consecutive days with every active goal done, same today/yesterday rule.
   function perfectStreak(player, ch, today) {
-    var jump = function (d) { return inChallenge(ch, d) && (isSkip(ch, d) || dayScore(player, ch, d).of === 0); };
     var day = dayScore(player, ch, today).perfect ? today : addDays(today, -1);
     var n = 0;
-    while (jump(day)) day = addDays(day, -1);
+    while (isSkip(ch, day)) day = addDays(day, -1);
     while (inChallenge(ch, day) && dayScore(player, ch, day).perfect) {
       n++;
       day = addDays(day, -1);
-      while (jump(day)) day = addDays(day, -1);
+      while (isSkip(ch, day)) day = addDays(day, -1);
     }
     return n;
   }
@@ -688,7 +659,7 @@
       // strike-proof. The minimum only bites when each player sets their own; group-only challenges count as met.
       if (activeGoals(ch, d).length < minGoalsOn(ch)) { out.push({ kind: "day", date: d, nogoal: true }); continue; }
       if (!dailyGoals(ch, d).length) continue; // weekly-only that day: judged by the week
-      if (!dailyPerfect(player, ch, d)) out.push({ kind: "day", date: d });
+      if (!dayScore(player, ch, d).perfect) out.push({ kind: "day", date: d });
     }
     // Weekly goals are judged on the player's own record: only days they were in, and the target can't
     // exceed the days the goal was active for them. Each day off in the week takes one off the target.
@@ -1009,7 +980,7 @@
     TZ: TZ, FINAL_HOUR: FINAL_HOUR, MAX_GOALS: MAX_GOALS, MAX_POST: MAX_POST, cleanPost: cleanPost,
     pacificDate: pacificDate, pacificHour: pacificHour, addDays: addDays, daysBetween: daysBetween, isDate: isDate,
     inChallenge: inChallenge, goalList: goalList, activeGoals: activeGoals, isLocked: isLocked, isDone: isDone,
-    dayScore: dayScore, dailyPerfect: dailyPerfect, weeklyDueOn: weeklyDueOn, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
+    dayScore: dayScore, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
     strikesFor: strikesFor, potStatus: potStatus, potPatch: potPatch, paidPatch: paidPatch,
     groupScore: groupScore, snapshotOf: snapshotOf, snapshotParts: snapshotParts, assembleSnapshot: assembleSnapshot, backupComplete: backupComplete, backupPlan: backupPlan, BACKUP_KEEP: BACKUP_KEEP, endForWeeks: endForWeeks, weeksOf: weeksOf, chFor: chFor, ownView: ownView, ownPatch: ownPatch, ownGoals: ownGoals, MAX_PERSONAL: MAX_PERSONAL, ownGoalsWithout: ownGoalsWithout, canAddOwn: canAddOwn,
     minGoalsOn: minGoalsOn, goalSetKey: goalSetKey, signoffFor: signoffFor, signoffVotePatch: signoffVotePatch, ownerSignoffPatch: ownerSignoffPatch, minGoalsPatch: minGoalsPatch,
