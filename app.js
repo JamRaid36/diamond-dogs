@@ -133,7 +133,7 @@ function renderInner() {
   ].filter(Boolean));
 }
 
-const DEV_SCENES = [["pack", "The real pack (copied from prod, Oct 31)"], ["season1", "Season 1: you, the owner (send the invite)"], ["invited", "Season 1: a new player, from the invite"], ["active", "Mid-challenge (owner)"], ["goalcheck", "Before the start (owner)"], ["goalcheckm", "Before the start (player)"],
+const DEV_SCENES = [["pack", "The real pack (copied from prod, Oct 31)"], ["packben", "The real pack, as Ben (weekly goals only: Rest day box)"], ["season1", "Season 1: you, the owner (send the invite)"], ["invited", "Season 1: a new player, from the invite"], ["active", "Mid-challenge (owner)"], ["goalcheck", "Before the start (owner)"], ["goalcheckm", "Before the start (player)"],
   ["pardon", "Pardon vote"], ["pardonyes", "Pardon: time's up, pardoned (Riley's view)"], ["pardonno", "Pardon: time's up, tie, strike stands (Riley's view)"], ["treasurer", "Treasurer (owner view)"], ["treasurerm", "Treasurer (his view)"], ["over", "Finished, settle the pot"],
   ["member", "A player, not the owner"], ["empty", "Brand-new player"], ["signedout", "Signed out"]];
 function demoBanner() {
@@ -269,13 +269,22 @@ function renderYou(ch) {
   const off = L.isSkip(ch, date);
   // Each every-day goal is a point; the weekly goals together are one more, "on track" (logic.dayScore, Tg 7598).
   const dailyLeft = goals.filter((g) => !L.isDone(p, date, g.id)).length;
+  // Weekly goals only today: the day isn't won until it's earned (a tick or the Rest day box) or it locks (Tg 7642).
+  const restOk = !off && L.restAllowed(ch, date);
+  const rested = L.isRest(p, date);
+  const earned = L.dayWon(p, ch, date, now());
+  const restLeft = restOk ? L.restDaysLeft(p, ch, date) : null; // null: no weekly goal limits it this week
+  const showRest = restOk && (rested || (restLeft !== 0 && !weekly.some((g) => L.isDone(p, date, g.id))));
+  const ringScore = off ? { hit: 0, off: true, of: 0 } : restOk ? { hit: earned ? 1 : 0, of: 1 } : score.of ? score : { hit: wk.met, of: wk.of };
   const sub = off ? "Day off for everyone" : !score.of ? "No goals today" :
+    restOk && score.perfect && !earned ? (restLeft === 0 ? "No rest days left this week. Tick a weekly goal to win today" : "Tick a weekly goal or take a rest day to win today") :
+    restOk && score.perfect && rested ? "Rest day. Day won, week on track." :
     score.perfect ? (!goals.length ? "On track for the week. Perfect day." : weekly.length ? "Perfect day. Daily goals done, week on track." : "Perfect day. Every daily goal done.") :
     dailyLeft ? `${dailyLeft} daily goal${dailyLeft === 1 ? "" : "s"} to tick` + (score.onTrack === false ? " · week off track" : "") :
     "Week off track: a weekly goal can't make its number";
   const card = h("section", { class: "you", id: "you", "aria-labelledby": "youTitle" },
     h("div", { class: "perfect", "aria-hidden": "true" }),
-    h("div", { class: "you-head" }, ring(off ? { hit: 0, of: 0, off: true } : score.of ? score : { hit: wk.met, of: wk.of }),
+    h("div", { class: "you-head" }, ring(ringScore),
       h("div", { class: "you-title" }, h("p", { class: "eyebrow" }, ch.name), h("h1", { id: "youTitle" }, dayLabel(date)),
         h("p", {}, `${fmtDay(date)} · ${sub}`))),
     catchUp ? catchUpBanner(ch, p, openDays, t) : null,
@@ -286,6 +295,7 @@ function renderYou(ch) {
     goals.length ? h("ul", { class: "goals" }, goals.map((g) => goalRow(ch, p, g, date, t))) : null,
     weekly.length ? h("div", { class: "wk-head" }, h("span", {}, "This week"), h("small", {}, `${wk.met} of ${wk.of} met · resets ${fmtDay(L.addDays(L.weekStart(date, ch), 7), { weekday: "long" })}`)) : null,
     weekly.length ? h("ul", { class: "goals" }, weekly.map((g) => goalRow(ch, p, g, date, t))) : null,
+    showRest ? h("ul", { class: "goals rest" }, restRow(ch, date, rested, restLeft)) : null,
     off ? h("p", { class: "empty" }, h("b", {}, "Day off. "), "Nothing counts today, and every streak picks up where it left off.") :
       !goals.length && !weekly.length ? h("p", { class: "empty" }, h("b", {}, "You have no goals. "), "Add yours under Edit goals. With none, every day counts as a strike.") : null,
     h("div", { class: "you-foot" },
@@ -326,6 +336,21 @@ function goalRow(ch, p, g, date, t) {
   return h("li", {}, btn);
 }
 
+// The Rest day box: weekly-only days, until a weekly goal is ticked (logic.restAllowed, Tg 7635/7642/7644).
+function restRow(ch, date, rested, left) {
+  const plural = (n) => `${n} rest day${n === 1 ? "" : "s"}`;
+  const note = left == null ? "Wins today. Your weekly goals are already met." :
+    rested ? (left - 1 > 0 ? `Wins today. ${plural(left - 1)} left this week.` : "Wins today. That's your last rest day this week.") :
+    `Wins today. ${plural(left)} left this week, counting today.`;
+  const btn = h("button", { class: "goal", type: "button", role: "checkbox", "aria-checked": String(rested), "data-goal": L.REST,
+    onclick: () => tick(ch, date, L.REST, !rested, btn) });
+  const box = h("span", { class: "box" });
+  box.innerHTML = SVG.check;
+  btn.append(box, h("span", { class: "goal-text" }, h("strong", {}, "Rest day"),
+    h("small", {}, note)));
+  return h("li", {}, btn);
+}
+
 async function tick(ch, date, goalId, done, btn) {
   const res = L.tickPatch(ch, date, goalId, done, now());
   if (res.error) { toast(res.error); return; }
@@ -339,6 +364,7 @@ async function tick(ch, date, goalId, done, btn) {
   if (row && done) { row.classList.add("pop"); navigator.vibrate?.(12); }
   const after = L.dayScore(me(), ch, date);
   if (after.perfect && !before.perfect) { $("#you")?.classList.add("shine"); toast("Perfect day. The pack sees it."); }
+  else if (goalId === L.REST && done && after.perfect) { $("#you")?.classList.add("shine"); toast("Rest day. Today counts."); }
   try { await state.backend.mergePlayer(state.user.uid, res.patch); }
   catch (e) {
     console.error(e);
@@ -726,7 +752,7 @@ function packTag(ch, chAll, uid, date, t) {
   return h("article", { class: "tag" + (isMe ? " me" : "") },
     h("button", { class: "tag-btn", type: "button", "aria-expanded": String(open), "aria-controls": detailId, onclick: () => { open ? state.expanded.delete(uid) : state.expanded.add(uid); render(); } },
       h("div", { class: "tag-row" },
-        h("div", { class: "tag-name" }, h("b", {}, p.name || "Player"), h("span", {}, potRow?.out ? (potRow.comeback ? (isMe ? "You · on a comeback" : "On a comeback") : isMe ? "You · out of the pot" : "Out of the pot") : isMe ? "You" : off ? "Day off" : !goals.length ? [ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : s.onTrack ? "On track" : s.of ? "Off track this week" : "Weekly goals only", wkToday ? `${wkToday} ticked today` : null].filter(Boolean).join(" · ") : ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : s.hit ? `${s.of - s.hit} to go today` : "Nothing ticked yet today")),
+        h("div", { class: "tag-name" }, h("b", {}, p.name || "Player"), h("span", {}, potRow?.out ? (potRow.comeback ? (isMe ? "You · on a comeback" : "On a comeback") : isMe ? "You · out of the pot" : "Out of the pot") : isMe ? "You" : off ? "Day off" : !goals.length ? [ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : s.onTrack ? "On track" : s.of ? "Off track this week" : "Weekly goals only", L.isRest(p, date) ? "Rest day" : wkToday ? `${wkToday} ticked today` : null].filter(Boolean).join(" · ") : ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : s.hit ? `${s.of - s.hit} to go today` : "Nothing ticked yet today")),
         // Two scores, never mixed (Jason 2026-10-31, Tg 7568): the day is every-day goals; weekly goals are judged by the week.
         h("div", { class: "tag-score" }, off ? "Off" : `${dw.won}/${dw.played}`, h("small", {}, off ? "today" : dw.played === 1 ? "day won" : "days won"))),
       h("div", { class: "pips", "aria-hidden": "true" }, goals.map((g) => h("span", { class: "pip" + (L.isDone(p, date, g.id) ? " on" : "") })),
@@ -1555,6 +1581,7 @@ function rulesFor(ch) {
       "Days run midnight to midnight, Pacific time.",
       "You can tick or fix a day until noon the next day. Then it locks for good and posts to the Daily Board.",
       "You win a day when every daily goal is done and every weekly goal can still make its number by the end of the week. If a weekly goal can't be finished, you lose that one day and take a strike, then it stops counting against your days that week. Your score is days won out of days played.",
+      "No daily goals that day? Tick a weekly goal or the Rest day box to win it. Tick nothing and it counts at noon the next day, if your week is still on track.",
       offs.length ? `Days off: ${offs.map((d) => fmtDay(d, { month: "short", day: "numeric" })).join(", ")}. Nothing counts on them.` : null,
     ]),
     sec("The goals", [

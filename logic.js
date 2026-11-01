@@ -223,6 +223,18 @@
 
   function isWeekly(g) { return !!(g && g.perWeek); }
 
+  // Rest day (Jason 2026-11-01, Tg 7635/7642/7644): on a day with no every-day goals (weekly goals only), a player can
+  // claim the day with a "Rest day" box instead of waiting for it to lock. Stored as days[date].rest; goal ids all
+  // start with "g", so it can't collide. It counts for nothing else: not a tick, not a weekly goal, not a strike.
+  var REST = "rest";
+  function restAllowed(ch, date) {
+    return !!ch && inChallenge(ch, date) && !isSkip(ch, date) && dailyGoals(ch, date).length === 0 && weeklyGoals(ch, date).length > 0;
+  }
+  function isRest(player, date) {
+    var d = player && player.days && player.days[date];
+    return !!(d && d[REST] === true);
+  }
+
   // Daily goals only: weekly goals are scored by the week, so a rest day can still be a perfect day.
   function dailyGoals(ch, date) { return activeGoals(ch, date).filter(function (g) { return !isWeekly(g); }); }
   // Weekly goals that need at least one day this week (days off can waive a goal for the week).
@@ -299,15 +311,37 @@
   function weekStillMakeable(player, ch, goal, date) {
     var pr = weekProgress(player, ch, goal, date);
     if (pr.need === 0 || pr.done >= pr.need) return true;
+    return pr.done + daysLeftAfter(player, ch, goal, date, pr.weekStart) >= pr.need;
+  }
+
+  // Days after `date` still left in its week for this goal (no days off, goal active, on the player's record).
+  function daysLeftAfter(player, ch, goal, date, ws) {
     var left = 0;
-    for (var d = addDays(date, 1); d <= addDays(pr.weekStart, 6); d = addDays(d, 1)) {
-      if (isSkip(ch, d) && inChallenge(ch, d)) continue;
-      if (!inChallenge(ch, d)) continue;
+    for (var d = addDays(date, 1); d <= addDays(ws, 6); d = addDays(d, 1)) {
+      if (!inChallenge(ch, d) || isSkip(ch, d)) continue;
       if (!activeGoals(ch, d).some(function (g) { return g.id === goal.id; })) continue;
       if (!onRecord(player, ch, d)) continue;
       left++;
     }
-    return pr.done + left >= pr.need;
+    return left;
+  }
+
+  // How many rest days are left this week, counting today (Jason 2026-11-01, Tg 7646: "you could have more than one
+  // day where you don't have to tick anything... based on your chosen goals"). The tightest weekly goal decides: a
+  // rest day is a day it isn't ticked, so it's the days left minus the ticks still needed. Today's own tick is set
+  // aside, since resting today means not ticking it. Goals already met (or already struck this week) don't limit it.
+  // null = no limit this week.
+  function restDaysLeft(player, ch, date) {
+    var best = null;
+    weeklyGoals(ch, date).forEach(function (g) {
+      if (lostEarlier(player, ch, g, date)) return;
+      var pr = weekProgress(player, ch, g, date);
+      var before = pr.done - (isDone(player, date, g.id) ? 1 : 0);
+      if (before >= pr.need) return;
+      var slack = before + 1 + daysLeftAfter(player, ch, g, date, pr.weekStart) - pr.need;
+      best = best == null ? slack : Math.min(best, slack);
+    });
+    return best == null ? null : Math.max(0, best);
   }
 
   // Was this weekly goal already impossible on a counted day earlier in date's week? (Impossible stays impossible:
@@ -345,12 +379,12 @@
 
   // Does this day count as won yet? A locked day: if it was perfect. An open day only once it's earned (Jason
   // 2026-11-01, Tg 7622: "how is it that anybody has 2/2? We've only just finished day 1"): every daily goal ticked,
-  // or, for a weekly-only day, at least one goal ticked. Otherwise a weekly-only player wins each day at midnight.
+  // or, for a weekly-only day, at least one goal ticked or the Rest day box (Tg 7642). Otherwise a weekly-only player wins each day at midnight.
   // No nowMs: no gating (callers that only ask "was it perfect").
   function dayWon(player, ch, d, nowMs) {
     if (!dayScore(player, ch, d).perfect) return false;
     if (nowMs == null || isFinal(d, nowMs, ch) || dailyGoals(ch, d).length) return true;
-    return activeGoals(ch, d).some(function (g) { return isDone(player, d, g.id); });
+    return isRest(player, d) || activeGoals(ch, d).some(function (g) { return isDone(player, d, g.id); });
   }
 
   // Days won / days played through `date` (Jason 2026-10-31, Tg 7600: "only done 1 day so far so everyone that can
@@ -988,7 +1022,7 @@
       Object.keys(days).forEach(function (d) {
         if (d < ch.start || d > ch.end) return;
         Object.keys(days[d] || {}).forEach(function (id) {
-          if (known[id]) return;
+          if (known[id] || id === REST) return; // the rest-day box isn't a goal
           var f = found[id] || (found[id] = { id: id, days: [], ticks: 0 });
           if (f.days.indexOf(d) < 0) f.days.push(d);
           if (days[d][id] === true) f.ticks++;
@@ -1012,7 +1046,7 @@
   // Owner correction of anyone's tick: any day inside the challenge, no edit window.
   function ownerTickPatch(ch, date, id, done) {
     if (!inChallenge(ch, date)) return { error: "That day isn't in the challenge." };
-    if (!activeGoals(ch, date).some(function (g) { return g.id === id; })) return { error: "That goal doesn't count that day." };
+    if (id === REST ? !restAllowed(ch, date) : !activeGoals(ch, date).some(function (g) { return g.id === id; })) return { error: "That goal doesn't count that day." };
     var day = {}; day[id] = !!done;
     var days = {}; days[date] = day;
     return { patch: { days: days } };
@@ -1021,7 +1055,8 @@
   // Patch for one tick. Refuses outside the edit window or for goals not active that day.
   function tickPatch(ch, date, id, done, nowMs) {
     if (!isEditable(date, nowMs, ch)) return { error: "That day is final." };
-    if (!activeGoals(ch, date).some(function (g) { return g.id === id; })) return { error: "That goal doesn't count that day." };
+    if (id === REST) { if (!restAllowed(ch, date)) return { error: "Rest days are for days with no daily goals." }; }
+    else if (!activeGoals(ch, date).some(function (g) { return g.id === id; })) return { error: "That goal doesn't count that day." };
     var day = {};
     day[id] = !!done;
     var days = {};
@@ -1051,7 +1086,7 @@
     TZ: TZ, FINAL_HOUR: FINAL_HOUR, MAX_GOALS: MAX_GOALS, MAX_POST: MAX_POST, cleanPost: cleanPost,
     pacificDate: pacificDate, pacificHour: pacificHour, addDays: addDays, daysBetween: daysBetween, isDate: isDate,
     inChallenge: inChallenge, goalList: goalList, activeGoals: activeGoals, isLocked: isLocked, isDone: isDone,
-    dayScore: dayScore, daysWon: daysWon, dayWon: dayWon, dailyPerfect: dailyPerfect, weekStillMakeable: weekStillMakeable, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
+    dayScore: dayScore, daysWon: daysWon, dayWon: dayWon, REST: REST, restAllowed: restAllowed, isRest: isRest, restDaysLeft: restDaysLeft, dailyPerfect: dailyPerfect, weekStillMakeable: weekStillMakeable, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
     strikesFor: strikesFor, potStatus: potStatus, potPatch: potPatch, paidPatch: paidPatch,
     groupScore: groupScore, snapshotOf: snapshotOf, snapshotParts: snapshotParts, assembleSnapshot: assembleSnapshot, backupComplete: backupComplete, backupPlan: backupPlan, BACKUP_KEEP: BACKUP_KEEP, endForWeeks: endForWeeks, weeksOf: weeksOf, chFor: chFor, ownView: ownView, ownPatch: ownPatch, ownGoals: ownGoals, MAX_PERSONAL: MAX_PERSONAL, ownGoalsWithout: ownGoalsWithout, canAddOwn: canAddOwn,
     minGoalsOn: minGoalsOn, goalSetKey: goalSetKey, signoffFor: signoffFor, signoffVotePatch: signoffVotePatch, ownerSignoffPatch: ownerSignoffPatch, minGoalsPatch: minGoalsPatch,

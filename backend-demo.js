@@ -17,7 +17,7 @@ function seed(scenario, now) {
   const start = d(-5);
   const store = { chat: {}, players: {}, challenges: {}, results: {}, members: { ownerEmail: "you@example.com", emails: ["you@example.com", "sam@example.com", "riley@example.com"] } };
   if (scenario === "empty") return store;
-  if (scenario === "pack") return seedPack(store, now);
+  if (scenario === "pack" || scenario === "packben") return seedPack(store, now); // packben: the same pack, seen by Ben (weekly goals only)
   const ch = {
     name: "Fall Cut", start: scenario === "upcoming" ? d(2) : start, end: scenario === "upcoming" ? d(23) : d(15),
     createdBy: "me", createdAt: now - 6 * 86400000, // created on its start day: no catch-up window in the demo
@@ -155,6 +155,7 @@ export function createDemoBackend(scenario = "active", opts = {}) {
   const invited = scenario === "invited";
   if (invited) { user = null; store.members.emails.push("you.invited@example.com"); store.players.me.name = "Jay"; }
   if (scenario === "season1") store.players.me.name = "Jay"; // the owner's own view of the same test season
+  if (scenario === "packben") { user = { uid: "ben", email: "ben@example.com" }; store.members.emails.push("ben@example.com"); }
   if (scenario === "newplayer") { user = { uid: "newbie", email: "sam@example.com" }; store.members.emails.push("sam@example.com"); }
   const emit = (coll) => listeners[coll].forEach((cb) => cb(coll === "members" ? store.members : Object.assign({}, store[coll])));
   const wait = () => new Promise((r) => setTimeout(r, opts.latency ?? 120));
