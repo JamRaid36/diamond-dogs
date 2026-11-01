@@ -686,7 +686,13 @@ function renderPardons(ch, st) {
 // open the app"). The section's banner is the toggle, with a one-line glance under it; each phone remembers its taps.
 const FOLD_KEY = "ap.fold";
 function foldMap() { try { return JSON.parse(localStorage.getItem(FOLD_KEY) || "{}") || {}; } catch { return {}; } }
-function foldOpen(key) { return (state.fold && key in state.fold) ? state.fold[key] : foldMap()[key] === true; }
+// Every section starts open; a tap folds it and the phone remembers (Jason 2026-11-01, Tg 7630/7636: "I was wrong").
+const FOLD_DEFAULT_OPEN = { pot: true, chat: true, grid: true, board: true };
+function foldOpen(key) {
+  if (state.fold && key in state.fold) return state.fold[key];
+  const m = foldMap();
+  return key in m ? m[key] === true : FOLD_DEFAULT_OPEN[key] !== false;
+}
 function setFold(key, open) {
   state.fold = Object.assign({}, state.fold, { [key]: open });
   try { localStorage.setItem(FOLD_KEY, JSON.stringify(Object.assign(foldMap(), { [key]: open }))); } catch { /* private mode: this visit only */ }

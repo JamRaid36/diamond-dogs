@@ -82,7 +82,7 @@ button.chip::after { content: "▾"; font-size: 10px; color: var(--muted); }
   display: grid; place-items: center; }
 .icon-btn svg { width: 20px; height: 20px; }
 
-main { padding-block: 18px 48px; display: grid; gap: 28px; }
+main { padding-block: 18px 48px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; } /* minmax(0): a long nowrap line (folded glance) can't widen the page (Tg 7630) */
 .demo-banner { font: 500 12px/1.4 var(--mono); background: var(--blaze-soft); color: var(--ink); border-radius: 12px; padding: 10px 12px; }
 
 /* section heads */
@@ -198,6 +198,7 @@ details.fold[open] > summary .sec-head::after { transform: rotate(180deg); }
 details.fold > summary .sec-head .note { margin-left: auto; }
 details.fold[open] > summary .fold-glance { display: none; }
 details.fold[open] > summary { margin-bottom: 12px; }
+.fold-sec, details.fold, details.fold > summary { min-width: 0; }
 .fold-glance { margin: 8px 0 0; font: 400 14px/1.4 var(--body); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-tools { display: flex; justify-content: flex-end; margin: -4px 0 8px; }
 .legend-note { margin: 8px 0 0; font: 400 12px/1.4 var(--body); color: var(--muted); }
