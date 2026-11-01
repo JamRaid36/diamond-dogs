@@ -684,7 +684,7 @@ function renderPardons(ch, st) {
 // A tap-to-open explainer. Plain words, one idea per line.
 // Long sections open folded (Jason 2026-10-31, Tg 7583: "I don't need to see everybody's goals and stats every time I
 // open the app"). The section's banner is the toggle, with a one-line glance under it; each phone remembers its taps.
-const FOLD_KEY = "ap.fold";
+const FOLD_KEY = "ap.fold2"; // new key 2026-11-01 (Tg 7651): folds saved under the old folded-by-default rules are dropped
 function foldMap() { try { return JSON.parse(localStorage.getItem(FOLD_KEY) || "{}") || {}; } catch { return {}; } }
 // Every section starts open; a tap folds it and the phone remembers (Jason 2026-11-01, Tg 7630/7636: "I was wrong").
 const FOLD_DEFAULT_OPEN = { pot: true, chat: true, grid: true, board: true };
@@ -1822,32 +1822,40 @@ async function boot() {
 }
 state.user = undefined;
 // ---------- updates: nobody stays stuck on an old copy ----------
-// At boot, fingerprint the app code as served; every 5 minutes and whenever the app comes back to the screen, fetch it
-// again past every cache (no-store + a fresh query, which also skips GitHub's 10-minute CDN copy). Different = a new
-// release: show the update bar, and reload on our own when it's safe (the app was just reopened, nothing half-typed).
+// Compare the copy this phone runs with the copy GitHub serves. The running copy is the browser's cached one
+// (force-cache: what the page loaded); the served one is fetched past every cache (no-store + a fresh query, which also
+// skips GitHub's 10-minute CDN copy). Different = stale. (Before 2026-11-01 the first network fetch was taken as "what's
+// running", so a phone opening a cached old copy never noticed: Tg 7649/7651.) To update, refresh the browser's cached
+// copies first (cache: "reload"), then reload; a plain reload could just reopen the old copy.
 const VERSION_FILES = ["app.js", "logic.js", "index.html"];
-async function codePrint() {
+const hashText = (t) => { let h1 = 5381; for (const c of t) h1 = ((h1 * 33) ^ c.charCodeAt(0)) >>> 0; return h1.toString(36); };
+async function codePrint(served) {
   try {
-    const parts = await Promise.all(VERSION_FILES.map((f) => fetch(`${f}?v=${Date.now()}`, { cache: "no-store" }).then((r) => (r.ok ? r.text() : ""))));
-    let h1 = 5381; for (const c of parts.join("\u0000")) h1 = ((h1 * 33) ^ c.charCodeAt(0)) >>> 0;
-    return h1.toString(36);
+    const parts = await Promise.all(VERSION_FILES.map((f) => (served
+      ? fetch(`${f}?v=${Date.now()}`, { cache: "no-store" }) : fetch(f, { cache: "force-cache" })).then((r) => (r.ok ? r.text() : ""))));
+    return hashText(parts.join("\u0000"));
   } catch { return null; } // offline: no news is no news
+}
+async function refreshAndReload() {
+  try { await Promise.all(["./", ...VERSION_FILES, "backend-firebase.js", "config.js"].map((f) => fetch(f, { cache: "reload" }))); } catch { /* reload anyway */ }
+  location.reload();
 }
 let bootPrint = null;
 async function checkForUpdate(reopened, force) {
   if (!force && new URLSearchParams(location.search).has("demo") && !window.DD_DEV) return; // tests: no network chatter
-  const p = await codePrint();
-  if (!p) return;
-  if (!bootPrint) { bootPrint = p; return; }
-  if (p === bootPrint) return;
+  if (!bootPrint) bootPrint = await codePrint(false);
+  const p = await codePrint(true);
+  if (!p || !bootPrint || p === bootPrint) return;
+  // reopened (or just opened): reload on our own, once per new version; if the refresh didn't take, show the bar
+  let tried = null; try { tried = sessionStorage.getItem("ap.updTried"); } catch { /* private mode */ }
   const busy = sheet.open || (document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
-  if (reopened && !busy) { location.reload(); return; }
+  if (reopened && !busy && tried !== p) { try { sessionStorage.setItem("ap.updTried", p); } catch { /* */ } return refreshAndReload(); }
   if (document.getElementById("updateBar")) return;
-  const bar = h("button", { id: "updateBar", class: "update-bar", type: "button", onclick: () => location.reload() }, "New version ready · Tap to update");
+  const bar = h("button", { id: "updateBar", class: "update-bar", type: "button", onclick: refreshAndReload }, "New version ready · Tap to update");
   document.body.append(bar);
 }
 window.__checkForUpdate = checkForUpdate; // the UI tests drive it directly
-checkForUpdate(false);
+checkForUpdate(true); // just opened: if this phone is on an old copy, swap it now
 setInterval(() => checkForUpdate(false), 5 * 60 * 1000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) checkForUpdate(true); });
 
