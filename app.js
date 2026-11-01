@@ -770,7 +770,18 @@ function packTag(ch, chAll, uid, date, t) {
       if (on) dot.innerHTML = SVG.check;
       return h("div", {}, dot, h("span", { class: "t" }, g.text, h("small", {}, ` · ${L.cadenceLabel(g)}${p.targets?.[g.id] ? " · " + p.targets[g.id] : ""}`)),
         h("span", { class: "wk" + (pr.met ? " met" : "") }, `${pr.done}/${pr.need}`));
-    }), state.ms?.owner ? ownerEditor(ch, uid, p) : null) : null);
+    }), restLine(ch, p, date), state.ms?.owner ? ownerEditor(ch, uid, p) : null) : null);
+}
+
+// Anyone's card shows their Rest day, the same box they see, so the pack (and the owner) can check it (Tg 7672).
+// Any player, any challenge: it appears whenever that player's day has no daily goals (logic.restAllowed).
+function restLine(ch, p, date) {
+  if (L.isSkip(ch, date) || !L.restAllowed(ch, date)) return null;
+  const on = L.isRest(p, date), left = L.restDaysLeft(p, ch, date);
+  const dot = h("span", { class: "dot" + (on ? " on" : "") });
+  if (on) dot.innerHTML = SVG.check;
+  const note = left == null ? "weekly goals met" : on ? (left - 1 > 0 ? `${left - 1} more this week` : "last one this week") : `${left} left this week`;
+  return h("div", { class: "rest-line" }, dot, h("span", { class: "t" }, "Rest day", h("small", {}, ` · ${note}`)));
 }
 
 function renderPack(ch) {
@@ -914,7 +925,15 @@ function ownerEditor(ch, uid, p) {
         try { await state.backend.mergePlayer(uid, r.patch); toast(`${p.name || "Their"} ${g.text}: ${on ? "unticked" : "ticked"}.`); }
         catch (e) { console.error(e); toast("That didn't save. Only the owner can edit other players."); }
       } }, `${on ? "✓ " : ""}${g.text}`);
-    })), rename, remove);
+    }), L.restAllowed(ch, day) ? (() => { // the Rest day box, fixable like any goal (Tg 7672)
+      const on = L.isRest(p, day);
+      return h("button", { class: "mini-btn" + (on ? " on" : ""), type: "button", "aria-pressed": String(on), "data-rest": "1", onclick: async () => {
+        const r = L.ownerTickPatch(ch, day, L.REST, !on);
+        if (r.error) return toast(r.error);
+        try { await state.backend.mergePlayer(uid, r.patch); toast(`${p.name || "Their"} rest day: ${on ? "unticked" : "ticked"}.`); }
+        catch (e) { console.error(e); toast("That didn't save. Only the owner can edit other players."); }
+      } }, `${on ? "✓ " : ""}Rest day`);
+    })() : null), rename, remove);
 }
 
 // Owner only: bring back goals whose ticks still exist (ids found in players' days but missing from the challenge).
