@@ -466,9 +466,10 @@ function renderPot(ch) {
   const chip = (r) => !r.out ? strikeDots(r.strikes)
     : r.comeback ? h("span", { class: "out-chip comeback", title: `Finish without another strike to get ${money(st.comeback)} back` }, "COMEBACK")
     : h("span", { class: "out-chip" }, "OUT");
-  return h("section", { "aria-labelledby": "potH" },
+  return foldSec("pot", "potH",
     h("div", { class: "sec-head" }, h("h2", { id: "potH" }, st.settled ? "The Pot · settled" : st.final ? "The Pot · final" : "The Pot"),
       h("span", { class: "note" }, `${money(st.buyIn)} in · out at ${st.limit}` + (st.comeback ? ` · comeback ${money(st.comeback)}` : ""))),
+    `${money(st.pot)} in the pot · ${st.alive} still in`,
     h("div", { class: "pot" },
       h("div", { class: "pot-top" }, h("div", { class: "pot-amt" }, money(st.pot), h("small", {}, `${st.paid} of ${st.rows.length} paid`)), h("div", { class: "pot-each" }, ...each)),
       h("ol", { class: "pot-rows" }, st.rows.map((r) => h("li", { class: !r.inPot ? "not-in" : r.out ? (r.comeback ? "out cb" : "out") : null },
@@ -676,6 +677,21 @@ function renderPardons(ch, st) {
 }
 
 // A tap-to-open explainer. Plain words, one idea per line.
+// Long sections open folded (Jason 2026-10-31, Tg 7583: "I don't need to see everybody's goals and stats every time I
+// open the app"). The section's banner is the toggle, with a one-line glance under it; each phone remembers its taps.
+const FOLD_KEY = "ap.fold";
+function foldMap() { try { return JSON.parse(localStorage.getItem(FOLD_KEY) || "{}") || {}; } catch { return {}; } }
+function foldOpen(key) { return (state.fold && key in state.fold) ? state.fold[key] : foldMap()[key] === true; }
+function setFold(key, open) {
+  state.fold = Object.assign({}, state.fold, { [key]: open });
+  try { localStorage.setItem(FOLD_KEY, JSON.stringify(Object.assign(foldMap(), { [key]: open }))); } catch { /* private mode: this visit only */ }
+}
+function foldSec(key, labelId, head, glance, ...body) {
+  return h("section", { "aria-labelledby": labelId, class: "fold-sec" },
+    h("details", { class: "fold", "data-fold": key, open: foldOpen(key) || null, ontoggle: (e) => { if (e.target.open !== foldOpen(key)) setFold(key, e.target.open); } },
+      h("summary", {}, head, glance ? h("p", { class: "fold-glance" }, glance) : null), ...body));
+}
+
 function help(title, lines) {
   return h("details", { class: "help" }, h("summary", {}, h("span", { class: "help-q", "aria-hidden": "true" }, "?"), title),
     h("ul", {}, lines.filter(Boolean).map((l) => h("li", {}, l))));
@@ -691,25 +707,30 @@ function packTag(ch, chAll, uid, date, t) {
   const isMe = uid === state.user.uid;
   const ps = L.perfectStreak(p, ch, date);
   const off = L.isSkip(ch, date);
+  const wk = L.weekScore(p, ch, date);
+  const wkToday = weekly.filter((g) => L.isDone(p, date, g.id)).length; // weekly goals ticked today: shown, never scored into the day
   const potRow = L.potStatus(state.players, chAll, now())?.rows.find((r) => r.uid === uid);
   const detailId = "tagd-" + uid.replace(/[^a-zA-Z0-9_-]/g, "");
   return h("article", { class: "tag" + (isMe ? " me" : "") },
     h("button", { class: "tag-btn", type: "button", "aria-expanded": String(open), "aria-controls": detailId, onclick: () => { open ? state.expanded.delete(uid) : state.expanded.add(uid); render(); } },
       h("div", { class: "tag-row" },
-        h("div", { class: "tag-name" }, h("b", {}, p.name || "Player"), h("span", {}, potRow?.out ? (potRow.comeback ? (isMe ? "You · on a comeback" : "On a comeback") : isMe ? "You · out of the pot" : "Out of the pot") : isMe ? "You" : off ? "Day off" : ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : s.hit ? `${s.of - s.hit} to go today` : "Nothing ticked yet today")),
-        h("div", { class: "tag-score" }, off ? "Off" : `${s.hit}/${s.of}`, h("small", {}, "today"))),
+        h("div", { class: "tag-name" }, h("b", {}, p.name || "Player"), h("span", {}, potRow?.out ? (potRow.comeback ? (isMe ? "You · on a comeback" : "On a comeback") : isMe ? "You · out of the pot" : "Out of the pot") : isMe ? "You" : off ? "Day off" : !goals.length ? (wkToday ? `Weekly goals only · ${wkToday} ticked today` : "Weekly goals only") : ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : s.hit ? `${s.of - s.hit} to go today` : "Nothing ticked yet today")),
+        // Two scores, never mixed (Jason 2026-10-31, Tg 7568): the day is every-day goals; weekly goals are judged by the week.
+        h("div", { class: "tag-score" }, off ? "Off" : goals.length ? `${s.hit}/${s.of}` : `${wk.met}/${wk.of}`, h("small", {}, goals.length ? "today" : "week"),
+          !off && goals.length && weekly.length ? h("small", { class: "tag-wk" }, `wk ${wk.met}/${wk.of}`) : null)),
       h("div", { class: "pips", "aria-hidden": "true" }, goals.map((g) => h("span", { class: "pip" + (L.isDone(p, date, g.id) ? " on" : "") })),
         weekly.map((g) => { const pr = L.weekProgress(p, ch, g, date); return h("span", { class: "wbar" + (pr.met ? " met" : "") }, h("i", { style: `width:${pr.need ? Math.min(100, Math.round(pr.done / pr.need * 100)) : 0}%` })); }))),
-    open ? h("div", { class: "tag-detail", id: detailId }, goals.map((g) => {
+    open ? h("div", { class: "tag-detail", id: detailId }, goals.length && weekly.length ? h("p", { class: "tag-sub" }, "Today") : null, goals.map((g) => {
       const on = L.isDone(p, date, g.id);
       const dot = h("span", { class: "dot" + (on ? " on" : "") });
       if (on) dot.innerHTML = SVG.check;
       return h("div", {}, dot, h("span", { class: "t" }, g.text, p.targets?.[g.id] ? h("small", {}, ` · ${p.targets[g.id]}`) : null),
         streakEl(L.goalStreak(p, ch, g.id, date), "Days in a row"));
-    }), weekly.map((g) => {
+    }), weekly.length ? h("p", { class: "tag-sub" }, "This week") : null, weekly.map((g) => {
       const pr = L.weekProgress(p, ch, g, date);
-      const dot = h("span", { class: "dot" + (pr.met ? " on" : "") });
-      if (pr.met) dot.innerHTML = SVG.check;
+      const on = L.isDone(p, date, g.id); // the box says "ticked today", same as the every-day rows; the badge carries the week
+      const dot = h("span", { class: "dot" + (on ? " on" : "") });
+      if (on) dot.innerHTML = SVG.check;
       return h("div", {}, dot, h("span", { class: "t" }, g.text, h("small", {}, ` · ${L.cadenceLabel(g)}${p.targets?.[g.id] ? " · " + p.targets[g.id] : ""}`)),
         h("span", { class: "wk" + (pr.met ? " met" : "") }, `${pr.done}/${pr.need}`));
     }), state.ms?.owner ? ownerEditor(ch, uid, p) : null) : null);
@@ -740,14 +761,16 @@ function renderGrid(ch) {
       const s = L.dayScore(p, L.chFor(ch, uid), d);
       if (L.isSkip(ch, d)) { grid.append(h("span", { class: "cell off" + (d === t ? " today" : ""), role: "cell", title: `${fmtDay(d)}: day off`, "aria-label": `${p.name}, ${fmtDay(d)}: day off` })); continue; }
       const lvl = !s.of || !L.joinedBy(p, d) ? 0 : s.pct === 100 ? 4 : s.pct >= 67 ? 3 : s.pct >= 34 ? 2 : s.pct > 0 ? 1 : 0;
-      grid.append(h("span", { class: `cell l${lvl}` + (d === t ? " today" : ""), role: "cell", title: `${p.name}, ${fmtDay(d)}: ${s.hit} of ${s.of}`, "aria-label": `${p.name}, ${fmtDay(d)}: ${s.hit} of ${s.of}` }));
+      const wkOnly = !s.of && L.joinedBy(p, d); // no every-day goals that day: judged by the week, so not shown as a miss
+      const what = wkOnly ? "weekly goals only" : `${s.hit} of ${s.of}`;
+      grid.append(h("span", { class: `cell l${lvl}` + (wkOnly ? " wkonly" : "") + (d === t ? " today" : ""), role: "cell", title: `${p.name}, ${fmtDay(d)}: ${what}`, "aria-label": `${p.name}, ${fmtDay(d)}: ${what}` }));
     }
   }
-  return h("section", { "aria-labelledby": "gridH" },
-    h("div", { class: "sec-head" }, h("h2", { id: "gridH" }, "Last 7 days"), h("span", { class: "note" }, "Every-day goals only")),
+  return foldSec("grid", "gridH",
+    h("div", { class: "sec-head" }, h("h2", { id: "gridH" }, "Last 7 days"), h("span", { class: "note" }, "Every-day goals only")), null,
     h("div", { class: "grid-card" }, grid,
       h("div", { class: "legend", "aria-hidden": "true" }, "None", h("span", { class: "cell l1" }), h("span", { class: "cell l2" }), h("span", { class: "cell l3" }), h("span", { class: "cell l4" }), "All"),
-      h("p", { class: "legend-note" }, "Weekly goals (like Lift 2 days a week) count when the week ends, so they don't change these colors.")));
+      h("p", { class: "legend-note" }, "Weekly goals (like Lift 2 days a week) count when the week ends, so they don't change these colors. Dashed = weekly goals only.")));
 }
 
 function boardPost(ch, r, live) {
@@ -779,7 +802,9 @@ function renderBoard(ch) {
     return h("section", { "aria-labelledby": "boardH" }, head, h("p", { class: "empty" }, ...msg));
   }
   const more = finals.length - shown.length;
-  return h("section", { "aria-labelledby": "boardH" }, head, h("div", { class: "board" },
+  const top = (live[0] || (shown[0] && L.buildResult(state.players, ch, shown[0], now())))?.rows?.[0];
+  const glance = top ? `${live.length ? "Today" : fmtDay(shown[0], { weekday: "short" })}: ${top.name} leads${top.of ? ` · ${top.hit}/${top.of}` : ""}` : null;
+  return foldSec("board", "boardH", head, glance, h("div", { class: "board" },
     live.map((r) => boardPost(ch, r, true)), shown.map((d) => boardPost(ch, L.buildResult(state.players, ch, d, now()), false)),
     more > 0 ? h("button", { class: "mini-btn more", type: "button", onclick: () => { state.boardLimit = limit + 30; render(); } }, `Show ${Math.min(more, 30)} older`) : null));
 }
@@ -1075,7 +1100,7 @@ function chatNew() {
   const un = chatUnread();
   if (!un.length) return null;
   const who = [...new Set(un.map((m) => state.players?.[m.uid]?.name || "Player"))];
-  return h("button", { class: "chat-new", type: "button", onclick: () => document.getElementById("chatH")?.scrollIntoView({ behavior: "smooth", block: "start" }) },
+  return h("button", { class: "chat-new", type: "button", onclick: () => { if (!foldOpen("chat")) { setFold("chat", true); render(); } document.getElementById("chatH")?.scrollIntoView({ behavior: "smooth", block: "start" }); } },
     h("span", { class: "chat-dot" }, String(un.length)),
     h("span", {}, h("b", {}, `${un.length} new in Trash Talk`), h("small", {}, who.length > 3 ? `${who.slice(0, 3).join(", ")} and more` : who.join(", "))),
     h("span", { class: "next-go", "aria-hidden": "true" }, "›"));
@@ -1137,10 +1162,12 @@ function renderChat() {
     }, { threshold: 0.5 });
     queueMicrotask(() => { if (list.isConnected) io.observe(list); });
   }
-  return h("section", { "aria-labelledby": "chatH" },
-    h("div", { class: "sec-head" }, h("h2", { id: "chatH" }, "Trash Talk"),
-      h("span", { class: "head-end" }, h("span", { class: "note" }, "Everyone in the group sees this"),
-        canEdit ? h("button", { class: "link-btn chat-edit", type: "button", "aria-pressed": String(!!state.chatEdit), onclick: () => { state.chatEdit = !state.chatEdit; state.confirmDel = null; render(); } }, state.chatEdit ? "Done" : "Edit") : null)),
+  const unread = chatUnread().length, last = msgs[msgs.length - 1];
+  const glance = unread ? `${unread} new` : last ? `${state.players?.[last.uid]?.name || "Player"}: ${String(last.text || "").slice(0, 60)}` : "Quiet in here";
+  return foldSec("chat", "chatH",
+    h("div", { class: "sec-head" }, h("h2", { id: "chatH" }, "Trash Talk"), h("span", { class: "note" }, "Everyone in the group sees this")),
+    glance,
+    canEdit ? h("div", { class: "chat-tools" }, h("button", { class: "link-btn chat-edit", type: "button", "aria-pressed": String(!!state.chatEdit), onclick: () => { state.chatEdit = !state.chatEdit; state.confirmDel = null; render(); } }, state.chatEdit ? "Done" : "Edit")) : null,
     h("div", { class: "chat-card" },
       msgs.length ? list : h("p", { class: "empty" }, h("b", {}, "Quiet in here. "), "Somebody start it."),
       h("form", { class: "chat-form", onsubmit: send }, input, h("button", { class: "btn blaze", type: "submit" }, "Send"))));

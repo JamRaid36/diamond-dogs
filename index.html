@@ -182,6 +182,7 @@ main { padding-block: 18px 48px; display: grid; gap: 28px; }
 .cell.l2 { background: color-mix(in srgb, var(--hit) 50%, var(--bg-deep)); }
 .cell.l3 { background: color-mix(in srgb, var(--hit) 75%, var(--bg-deep)); }
 .cell.l4 { background: var(--hit); }
+.cell.wkonly { border: 1px dashed var(--line); }
 .cell.off { background: repeating-linear-gradient(135deg, var(--bg-deep) 0 4px, transparent 4px 8px); border: 1px dashed var(--line); }
 .brand-hero { display: block; width: min(68vw, 280px); height: auto; margin: 4px auto -6px; filter: drop-shadow(0 14px 30px color-mix(in srgb, var(--ice) 30%, transparent)); }
 .off-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
@@ -189,6 +190,16 @@ main { padding-block: 18px 48px; display: grid; gap: 28px; }
 .cell.today { outline: 2px solid var(--blaze); outline-offset: 1px; }
 .legend { display: flex; align-items: center; gap: 6px; margin-top: 12px; font: 400 12px/1 var(--body); color: var(--muted); }
 .legend .cell { width: 14px; height: 14px; border-radius: 4px; }
+details.fold > summary { list-style: none; cursor: pointer; display: block; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary .sec-head { margin-bottom: 0; }
+details.fold > summary .sec-head::after { content: "▾"; flex: none; color: var(--muted); font-size: 14px; transition: transform 200ms var(--ease); }
+details.fold[open] > summary .sec-head::after { transform: rotate(180deg); }
+details.fold > summary .sec-head .note { margin-left: auto; }
+details.fold[open] > summary .fold-glance { display: none; }
+details.fold[open] > summary { margin-bottom: 12px; }
+.fold-glance { margin: 8px 0 0; font: 400 14px/1.4 var(--body); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-tools { display: flex; justify-content: flex-end; margin: -4px 0 8px; }
 .legend-note { margin: 8px 0 0; font: 400 12px/1.4 var(--body); color: var(--muted); }
 
 /* daily board */
