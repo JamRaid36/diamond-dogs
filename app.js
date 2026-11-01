@@ -267,13 +267,14 @@ function renderYou(ch) {
   const dayLabel = (d) => d === t ? "Today" : d === L.addDays(t, -1) ? "Yesterday" : fmtDay(d, { weekday: "short" });
   const perfectStreak = L.perfectStreak(p, ch, t);
   const off = L.isSkip(ch, date);
-  const sub = off ? "Day off for everyone" : !goals.length ? `${wk.met} of ${wk.of} weekly goals met` :
-    score.perfect ? "Perfect day. Every daily goal done." :
-    score.hit === 0 ? `${goals.length} daily goal${goals.length === 1 ? "" : "s"} to tick` :
+  // A day scores everything in play: every-day goals, plus weekly goals ticked today or due today (logic.dayScore).
+  const sub = off ? "Day off for everyone" : !score.of ? (weekly.length ? "Nothing due today. Tick a weekly goal and it counts." : "Nothing to tick today") :
+    score.perfect ? "Perfect day. Everything in play is done." :
+    score.hit === 0 ? `${score.of} to tick today` :
     `${score.of - score.hit} to go today`;
   const card = h("section", { class: "you", id: "you", "aria-labelledby": "youTitle" },
     h("div", { class: "perfect", "aria-hidden": "true" }),
-    h("div", { class: "you-head" }, ring(off ? { hit: 0, of: 0, off: true } : goals.length ? score : { hit: wk.met, of: wk.of }),
+    h("div", { class: "you-head" }, ring(off ? { hit: 0, of: 0, off: true } : score),
       h("div", { class: "you-title" }, h("p", { class: "eyebrow" }, ch.name), h("h1", { id: "youTitle" }, dayLabel(date)),
         h("p", {}, `${fmtDay(date)} · ${sub}`))),
     catchUp ? catchUpBanner(ch, p, openDays, t) : null,
@@ -287,7 +288,7 @@ function renderYou(ch) {
     off ? h("p", { class: "empty" }, h("b", {}, "Day off. "), "Nothing counts today, and every streak picks up where it left off.") :
       !goals.length && !weekly.length ? h("p", { class: "empty" }, h("b", {}, "You have no goals. "), "Add yours under Edit goals. With none, every day counts as a strike.") : null,
     h("div", { class: "you-foot" },
-      h("span", { class: "foot-note" + (perfectStreak >= 3 ? " hot" : "") }, perfectStreak ? `${perfectStreak} perfect day${perfectStreak === 1 ? "" : "s"} in a row` : goals.length ? `Tick all ${goals.length} daily goals for a perfect day` : "Weekly goals only"),
+      h("span", { class: "foot-note" + (perfectStreak >= 3 ? " hot" : "") }, perfectStreak ? `${perfectStreak} perfect day${perfectStreak === 1 ? "" : "s"} in a row` : "Tick everything in play for a perfect day"),
       h("button", { class: "link-btn", type: "button", onclick: openSettings }, "Edit goals")));
   return card;
 }
@@ -696,7 +697,7 @@ function packTag(ch, chAll, uid, date, t) {
   return h("article", { class: "tag" + (isMe ? " me" : "") },
     h("button", { class: "tag-btn", type: "button", "aria-expanded": String(open), "aria-controls": detailId, onclick: () => { open ? state.expanded.delete(uid) : state.expanded.add(uid); render(); } },
       h("div", { class: "tag-row" },
-        h("div", { class: "tag-name" }, h("b", {}, p.name || "Player"), h("span", {}, potRow?.out ? (potRow.comeback ? (isMe ? "You · on a comeback" : "On a comeback") : isMe ? "You · out of the pot" : "Out of the pot") : isMe ? "You" : off ? "Day off" : ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : s.hit ? `${s.of - s.hit} to go today` : "Nothing ticked yet today")),
+        h("div", { class: "tag-name" }, h("b", {}, p.name || "Player"), h("span", {}, potRow?.out ? (potRow.comeback ? (isMe ? "You · on a comeback" : "On a comeback") : isMe ? "You · out of the pot" : "Out of the pot") : isMe ? "You" : off ? "Day off" : ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : !s.of ? "Nothing due today" : s.hit ? `${s.of - s.hit} to go today` : "Nothing ticked yet today")),
         h("div", { class: "tag-score" }, off ? "Off" : `${s.hit}/${s.of}`, h("small", {}, "today"))),
       h("div", { class: "pips", "aria-hidden": "true" }, goals.map((g) => h("span", { class: "pip" + (L.isDone(p, date, g.id) ? " on" : "") })),
         weekly.map((g) => { const pr = L.weekProgress(p, ch, g, date); return h("span", { class: "wbar" + (pr.met ? " met" : "") }, h("i", { style: `width:${pr.need ? Math.min(100, Math.round(pr.done / pr.need * 100)) : 0}%` })); }))),
@@ -740,14 +741,16 @@ function renderGrid(ch) {
       const s = L.dayScore(p, L.chFor(ch, uid), d);
       if (L.isSkip(ch, d)) { grid.append(h("span", { class: "cell off" + (d === t ? " today" : ""), role: "cell", title: `${fmtDay(d)}: day off`, "aria-label": `${p.name}, ${fmtDay(d)}: day off` })); continue; }
       const lvl = !s.of || !L.joinedBy(p, d) ? 0 : s.pct === 100 ? 4 : s.pct >= 67 ? 3 : s.pct >= 34 ? 2 : s.pct > 0 ? 1 : 0;
-      grid.append(h("span", { class: `cell l${lvl}` + (d === t ? " today" : ""), role: "cell", title: `${p.name}, ${fmtDay(d)}: ${s.hit} of ${s.of}`, "aria-label": `${p.name}, ${fmtDay(d)}: ${s.hit} of ${s.of}` }));
+      const rest = !s.of && L.joinedBy(p, d); // nothing in play that day: shown dashed, not as a miss
+      const what = rest ? "nothing due" : `${s.hit} of ${s.of}`;
+      grid.append(h("span", { class: `cell l${lvl}` + (rest ? " rest" : "") + (d === t ? " today" : ""), role: "cell", title: `${p.name}, ${fmtDay(d)}: ${what}`, "aria-label": `${p.name}, ${fmtDay(d)}: ${what}` }));
     }
   }
   return h("section", { "aria-labelledby": "gridH" },
-    h("div", { class: "sec-head" }, h("h2", { id: "gridH" }, "Last 7 days"), h("span", { class: "note" }, "Every-day goals only")),
+    h("div", { class: "sec-head" }, h("h2", { id: "gridH" }, "Last 7 days"), h("span", { class: "note" }, "Everything in play")),
     h("div", { class: "grid-card" }, grid,
       h("div", { class: "legend", "aria-hidden": "true" }, "None", h("span", { class: "cell l1" }), h("span", { class: "cell l2" }), h("span", { class: "cell l3" }), h("span", { class: "cell l4" }), "All"),
-      h("p", { class: "legend-note" }, "Weekly goals (like Lift 2 days a week) count when the week ends, so they don't change these colors.")));
+      h("p", { class: "legend-note" }, "A weekly goal counts the day you tick it, or when the week needs that day. Skipping one with room left doesn't count against you. Dashed = nothing due.")));
 }
 
 function boardPost(ch, r, live) {
@@ -772,7 +775,7 @@ function renderBoard(ch) {
   const live = L.editableDates(ch, now()).filter((d) => !L.isSkip(ch, d)).map((d) => L.buildResult(state.players, ch, d, now()));
   const limit = state.boardLimit || 3;
   const shown = finals.slice(0, limit);
-  const head = h("div", { class: "sec-head" }, h("h2", { id: "boardH" }, "Daily Board"), h("span", { class: "note" }, "Scores every-day goals · locks at noon next day"));
+  const head = h("div", { class: "sec-head" }, h("h2", { id: "boardH" }, "Daily Board"), h("span", { class: "note" }, "Scores everything in play · locks at noon next day"));
   if (!live.length && !shown.length) {
     const msg = t < ch.start ? [h("b", {}, `Scores start ${fmtDay(ch.start, { weekday: "long" })}. `), "The board goes live the moment anyone ticks."]
       : [h("b", {}, "Nothing to show yet. "), "The board fills in as the pack ticks."];
@@ -1570,7 +1573,7 @@ function openHelp(open = null) {
     q("comeback", "I'm out. Now what?", p("Keep going. If the challenge has a comeback, finish without another strike and you get that amount back. You can't win the pot that way, but it cuts your loss.")),
     q("pardon", "Can a strike be forgiven?", p("Yes. Under The Pot, Your strikes, tap Ask for a pardon. The others have 48 hours to vote. More than half saying yes wipes it right away; when time's up, the players who voted decide. You can't vote on your own.")),
     q("packpoints", "What are pack points?", p("Group goals score the pack as a team: 1 point for each day (or week) everyone hits one. The app counts it from everyone's ticks. Bragging rights for now; they don't change the pot.")),
-    q("board", "What's the Daily Board?", p("Each day's final scores, posted once the day locks at noon. The top of the list is a live view of today. A day's score counts your every-day goals only, so 1/1 means you did your one every-day goal. Weekly goals show underneath as wk, like wk 0/3, and count when the week ends.")),
+    q("board", "What's the Daily Board?", p("Each day's final scores, posted once the day locks at noon. The top of the list is a live view of today. A day scores everything in play: your every-day goals, plus any weekly goal you ticked that day or that was due (the week couldn't be made without it). Skipping a weekly goal with room left in the week doesn't count against the day. Weekly totals show underneath as wk, like wk 0/3.")),
     q("chat", "What's Trash Talk?", p("A group message board. Everyone in the group sees it. You can delete your own posts.")),
     q("home", "How do I put it on my home screen?",
       ...(kind !== "other" ? [p("On this phone:"), stepsList(browserKey(), ADD)]
