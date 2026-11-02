@@ -897,10 +897,17 @@ function ownerEditor(ch, uid, p) {
   const days = [];
   for (let d = last; d >= ch.start && days.length < 60; d = L.addDays(d, -1)) days.push(d);
   const day = state.ownerDay?.[uid] && days.includes(state.ownerDay[uid]) ? state.ownerDay[uid] : last;
-  const sel = h("select", { class: "cad", id: `own-${uid.replace(/[^a-zA-Z0-9_-]/g, "")}`, "aria-label": `Day to edit for ${p.name}`,
-    onchange: (e) => { state.ownerDay = Object.assign({}, state.ownerDay, { [uid]: e.target.value }); render(); } },
-    days.map((d) => h("option", { value: d }, d === t ? "Today" : fmtDay(d))));
+  // Day to fix: Earlier / Later arrows around a dropdown, so going back a day is one obvious tap (Jason 2026-11-02, Tg 7700).
+  const pick = (d) => { state.ownerDay = Object.assign({}, state.ownerDay, { [uid]: d }); render(); };
+  const dayName = (d) => d === t ? "Today" : d === L.addDays(t, -1) ? "Yesterday" : fmtDay(d);
+  const sel = h("select", { class: "cad", id: `own-${uid.replace(/[^a-zA-Z0-9_-]/g, "")}`, "aria-label": `Day to fix for ${p.name}`,
+    onchange: (e) => pick(e.target.value) },
+    days.map((d) => h("option", { value: d }, dayName(d))));
   sel.value = day;
+  const i = days.indexOf(day); // days run newest first
+  const step = (label, aria, to) => h("button", { class: "mini-btn day-step", type: "button", "aria-label": aria, disabled: !to || null, onclick: () => to && pick(to) }, label);
+  const dayRow = h("div", { class: "day-pick" },
+    step("‹ Earlier", "Earlier day", days[i + 1]), sel, step("Later ›", "Later day", days[i - 1]));
   const self = uid === state.user.uid;
   const nameIn = h("input", { id: `nm-${uid.replace(/[^a-zA-Z0-9_-]/g, "")}`, maxlength: "24", value: p.name || "", "aria-label": `Name for ${p.name || "player"}` });
   const rename = h("div", { style: "display:flex;gap:8px" }, nameIn, h("button", { class: "mini-btn", type: "button", style: "min-height:44px;flex:none", onclick: async () => {
@@ -916,7 +923,9 @@ function ownerEditor(ch, uid, p) {
     catch (e) { console.error(e); toast("That didn't save."); }
   } }, sure ? `Tap again: delete ${p.name || "them"}${ch.pot?.buyIn > 0 ? ", their ticks and their buy-in" : " and all their ticks"}` : "Take off the board");
   return h("div", { class: "owner-edit" }, self ? null : ownerGoalsFor(ch, uid, p),
-    days.length ? h("span", { class: "tlabel" }, self ? "Owner: fix your ticks" : "Owner: fix their ticks") : null, days.length ? sel : null,
+    days.length ? h("span", { class: "tlabel" }, self ? "Owner: fix your ticks" : "Owner: fix their ticks") : null,
+    days.length ? h("p", { class: "day-hint" }, `Pick the day, then tap a goal to tick or untick it for ${self ? "you" : p.name || "them"}.`) : null,
+    days.length ? dayRow : null,
     h("div", { class: "owner-ticks" }, L.activeGoals(ch, day).map((g) => {
       const on = L.isDone(p, day, g.id);
       return h("button", { class: "mini-btn" + (on ? " on" : ""), type: "button", "aria-pressed": String(on), onclick: async () => {
