@@ -850,8 +850,14 @@ function renderBoard(ch) {
     return h("section", { "aria-labelledby": "boardH" }, head, h("p", { class: "empty" }, ...msg));
   }
   const more = finals.length - shown.length;
-  const top = (live[0] || (shown[0] && L.buildResult(state.players, ch, shown[0], now())))?.rows?.[0];
-  const glance = top ? `${live.length ? "Today" : fmtDay(shown[0], { weekday: "short" })}: ${top.name} leads${top.of ? ` · ${top.hit}/${top.of}` : ""}` : null;
+  // Nobody "leads": everyone can win the same day, so the folded line counts full squares (Jason 2026-11-02, Tg 7729).
+  const rows = (live[0] || (shown[0] && L.buildResult(state.players, ch, shown[0], now())))?.rows || [];
+  const full = rows.filter((r) => r.perfect).length;
+  const when = live.length ? "Today" : fmtDay(shown[0], { weekday: "short" });
+  const glance = !rows.length ? null
+    : full === 0 ? `${when}: no full squares yet`
+    : full === rows.length ? `${when}: all ${rows.length} full squares`
+    : `${when}: ${full} of ${rows.length} full squares`;
   return foldSec("board", "boardH", head, glance, h("div", { class: "board" },
     live.map((r) => boardPost(ch, r, true)), shown.map((d) => boardPost(ch, L.buildResult(state.players, ch, d, now()), false)),
     more > 0 ? h("button", { class: "mini-btn more", type: "button", onclick: () => { state.boardLimit = limit + 30; render(); } }, `Show ${Math.min(more, 30)} older`) : null));
