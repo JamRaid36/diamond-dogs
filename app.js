@@ -825,8 +825,8 @@ function boardPost(ch, r, live) {
   return h("article", { class: "post" + (live ? " live" : "") },
     h("h3", {}, h("span", {}, fmtDay(r.date), live ? h("span", { class: "live-chip" }, "Live") : null),
       h("small", {}, live ? "Open · still ticking" : `Day ${L.dayNumber(ch, r.date)}`)),
-    h("ol", {}, (r.rows || []).map((row, i) => h("li", { class: i === 0 && row.pct > 0 ? "lead" : null },
-      h("span", { class: "rank" }, String(i + 1)),
+    // No ranks and no #1 highlight: nobody wins until someone's out (Jason 2026-11-02, Tg 7736). Listed by name.
+    h("ul", {}, (r.rows || []).slice().sort((a, b) => a.name.localeCompare(b.name)).map((row) => h("li", {},
       h("div", {}, h("span", { class: "nm" }, row.name), row.perfect ? h("span", { class: "badge" }, "Perfect") : null, h("div", { class: "bar" }, h("i", { style: `width:${row.pct}%` }))),
       h("span", { class: "pct" }, row.played != null ? `${row.won}/${row.played}` : "", h("small", { class: "wkn" }, "days won"))))));
 }
