@@ -825,8 +825,9 @@ function renderGrid(ch) {
 
 function boardPost(ch, r, live) {
   return h("article", { class: "post" + (live ? " live" : "") },
-    h("h3", {}, h("span", {}, fmtDay(r.date), live ? h("span", { class: "live-chip" }, "Live") : null),
-      h("small", {}, live ? "Open · still ticking" : `Day ${L.dayNumber(ch, r.date)}`)),
+    // Only today is Live; yesterday, still open until noon, says so (Jason 2026-11-07, Tg 8007/8011: "why do these both say live?").
+    h("h3", {}, h("span", {}, fmtDay(r.date), live ? (r.date === today() ? h("span", { class: "live-chip" }, "Live") : h("span", { class: "live-chip soon" }, "Locks at noon")) : null),
+      h("small", {}, live ? (r.date === today() ? "Open · still ticking" : "Fix ticks by noon") : `Day ${L.dayNumber(ch, r.date)}`)),
     // No ranks and no #1 highlight: nobody wins until someone's out (Jason 2026-11-02, Tg 7736). Listed by name.
     h("ul", {}, (r.rows || []).slice().sort((a, b) => a.name.localeCompare(b.name)).map((row) => h("li", {},
       h("div", {}, h("span", { class: "nm" }, row.name), row.perfect ? h("span", { class: "badge" }, "Perfect") : null, h("div", { class: "bar" }, h("i", { style: `width:${row.pct}%` })))))));
