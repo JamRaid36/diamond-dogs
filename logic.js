@@ -381,10 +381,14 @@
   // 2026-11-01, Tg 7622: "how is it that anybody has 2/2? We've only just finished day 1"): every daily goal ticked,
   // or, for a weekly-only day, at least one goal ticked or the Rest day box (Tg 7642). Otherwise a weekly-only player wins each day at midnight.
   // No nowMs: no gating (callers that only ask "was it perfect").
+  // A week whose weekly goals have all made their number wins its weekly-only days right away (Jason 2026-11-07,
+  // Tg 7986: "Joseph didn't have to hit any goals on Friday because he already achieved all his goals for the week").
   function dayWon(player, ch, d, nowMs) {
     if (!dayScore(player, ch, d).perfect) return false;
     if (nowMs == null || isFinal(d, nowMs, ch) || dailyGoals(ch, d).length) return true;
-    return isRest(player, d) || activeGoals(ch, d).some(function (g) { return isDone(player, d, g.id); });
+    if (isRest(player, d) || activeGoals(ch, d).some(function (g) { return isDone(player, d, g.id); })) return true;
+    var weekly = weeklyGoals(ch, d);
+    return weekly.length > 0 && weekly.every(function (g) { return weekProgress(player, ch, g, d).met; });
   }
 
   // The day's score as the pack sees it right now (Jason 2026-11-01, Tg 7664: "the blue on last seven days shouldn't be

@@ -1615,7 +1615,7 @@ function rulesFor(ch) {
       "Days run midnight to midnight, Pacific time.",
       "You can tick or fix a day until noon the next day. Then it locks for good and posts to the Daily Board.",
       "You win a day when every daily goal is done and every weekly goal can still make its number by the end of the week. If a weekly goal can't be finished, you lose that one day and take a strike, then it stops counting against your days that week. Your score is days won out of days played.",
-      "No daily goals that day? Tick a weekly goal or the Rest day box to win it. Tick nothing and it counts at noon the next day, if your week is still on track.",
+      "No daily goals that day? Tick a weekly goal or the Rest day box to win it. Already hit every weekly goal's number? Then the rest of that week's days are won right away. Otherwise, tick nothing and it counts at noon the next day, if your week is still on track.",
       offs.length ? `Days off: ${offs.map((d) => fmtDay(d, { month: "short", day: "numeric" })).join(", ")}. Nothing counts on them.` : null,
     ]),
     sec("The goals", [
