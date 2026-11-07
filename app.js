@@ -745,16 +745,18 @@ function packTag(ch, chAll, uid, date, t) {
   const ps = L.perfectStreak(p, ch, date, now());
   const off = L.isSkip(ch, date);
   const wk = L.weekScore(p, ch, date);
-  const dw = L.daysWon(p, ch, date, now()); // the card's number: days won / days played (Tg 7600)
   const wkToday = weekly.filter((g) => L.isDone(p, date, g.id)).length; // weekly goals ticked today: shown, never scored into the day
   const potRow = L.potStatus(state.players, chAll, now())?.rows.find((r) => r.uid === uid);
+  // The card's number is strikes, not days won (Jason 2026-11-07, Tg 7992/8000): a day only counts against you once it
+  // locks, so a perfect record reads the same for everyone, whoever finished today first. Pardoned strikes don't count.
+  const st = potRow ? potRow.strikes : L.strikesFor(p, ch, now()).length;
   const detailId = "tagd-" + uid.replace(/[^a-zA-Z0-9_-]/g, "");
   return h("article", { class: "tag" + (isMe ? " me" : "") },
     h("button", { class: "tag-btn", type: "button", "aria-expanded": String(open), "aria-controls": detailId, onclick: () => { open ? state.expanded.delete(uid) : state.expanded.add(uid); render(); } },
       h("div", { class: "tag-row" },
         h("div", { class: "tag-name" }, h("b", {}, p.name || "Player"), h("span", {}, potRow?.out ? (potRow.comeback ? (isMe ? "You · on a comeback" : "On a comeback") : isMe ? "You · out of the pot" : "Out of the pot") : isMe ? "You" : off ? "Day off" : !goals.length ? [ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : s.onTrack ? "On track" : s.of ? "Off track this week" : "Weekly goals only", L.isRest(p, date) ? "Rest day" : wkToday ? `${wkToday} ticked today` : null].filter(Boolean).join(" · ") : ps ? `${ps} perfect day${ps === 1 ? "" : "s"} in a row` : s.hit ? `${s.of - s.hit} to go today` : "Nothing ticked yet today")),
         // Two scores, never mixed (Jason 2026-10-31, Tg 7568): the day is every-day goals; weekly goals are judged by the week.
-        h("div", { class: "tag-score" }, off ? "Off" : `${dw.won}/${dw.played}`, h("small", {}, off ? "today" : dw.played === 1 ? "day won" : "days won"))),
+        h("div", { class: "tag-score" }, off ? "Off" : String(st), h("small", {}, off ? "today" : st === 1 ? "strike" : "strikes"))),
       h("div", { class: "pips", "aria-hidden": "true" }, goals.map((g) => h("span", { class: "pip" + (L.isDone(p, date, g.id) ? " on" : "") })),
         weekly.map((g) => { const pr = L.weekProgress(p, ch, g, date); return h("span", { class: "wbar" + (pr.met ? " met" : "") }, h("i", { style: `width:${pr.need ? Math.min(100, Math.round(pr.done / pr.need * 100)) : 0}%` })); }))),
     open ? h("div", { class: "tag-detail", id: detailId }, goals.length && weekly.length ? h("p", { class: "tag-sub" }, "Today") : null, goals.map((g) => {
@@ -827,8 +829,7 @@ function boardPost(ch, r, live) {
       h("small", {}, live ? "Open · still ticking" : `Day ${L.dayNumber(ch, r.date)}`)),
     // No ranks and no #1 highlight: nobody wins until someone's out (Jason 2026-11-02, Tg 7736). Listed by name.
     h("ul", {}, (r.rows || []).slice().sort((a, b) => a.name.localeCompare(b.name)).map((row) => h("li", {},
-      h("div", {}, h("span", { class: "nm" }, row.name), row.perfect ? h("span", { class: "badge" }, "Perfect") : null, h("div", { class: "bar" }, h("i", { style: `width:${row.pct}%` }))),
-      h("span", { class: "pct" }, row.played != null ? `${row.won}/${row.played}` : "", h("small", { class: "wkn" }, "days won"))))));
+      h("div", {}, h("span", { class: "nm" }, row.name), row.perfect ? h("span", { class: "badge" }, "Perfect") : null, h("div", { class: "bar" }, h("i", { style: `width:${row.pct}%` })))))));
 }
 
 // Every day on the board is scored from everyone's ticks, so an owner's tick fix shows by itself.
@@ -1614,7 +1615,7 @@ function rulesFor(ch) {
       `${ch.name}: ${fmtDay(ch.start, { month: "short", day: "numeric" })} to ${fmtDay(ch.end, { month: "short", day: "numeric" })} (${L.challengeLength(ch)} days).`,
       "Days run midnight to midnight, Pacific time.",
       "You can tick or fix a day until noon the next day. Then it locks for good and posts to the Daily Board.",
-      "You win a day when every daily goal is done and every weekly goal can still make its number by the end of the week. If a weekly goal can't be finished, you lose that one day and take a strike, then it stops counting against your days that week. Your score is days won out of days played.",
+      "You win a day when every daily goal is done and every weekly goal can still make its number by the end of the week. If a weekly goal can't be finished, you lose that one day and take a strike, then it stops counting against your days that week. Your tag shows your strikes. A day only counts against you once it locks at noon the next day.",
       "No daily goals that day? Tick a weekly goal or the Rest day box to win it. Already hit every weekly goal's number? Then the rest of that week's days are won right away. Otherwise, tick nothing and it counts at noon the next day, if your week is still on track.",
       offs.length ? `Days off: ${offs.map((d) => fmtDay(d, { month: "short", day: "numeric" })).join(", ")}. Nothing counts on them.` : null,
     ]),
@@ -1671,7 +1672,7 @@ function openHelp(open = null) {
     q("comeback", "I'm out. Now what?", p("Keep going. If the challenge has a comeback, finish without another strike and you get that amount back. You can't win the pot that way, but it cuts your loss.")),
     q("pardon", "Can a strike be forgiven?", p("Yes. Under The Pot, Your strikes, tap Ask for a pardon. The others have 48 hours to vote. More than half saying yes wipes it right away; when time's up, the players who voted decide. You can't vote on your own.")),
     q("packpoints", "What are pack points?", p("Group goals score the pack as a team: 1 point for each day (or week) everyone hits one. The app counts it from everyone's ticks. Bragging rights for now; they don't change the pot.")),
-    q("board", "What's the Daily Board?", p("Each day's results, posted once the day locks at noon. The top is a live view of today. You win a day when every daily goal is done and every weekly goal can still make its number by the end of the week. The number is days won out of days played: on track since day 1 and it's 1/1, then 2/2, and so on. A day you haven't finished doesn't count against you until it locks. A weekly goal that can't be finished costs one day, not the rest of the week.")),
+    q("board", "What's the Daily Board?", p("Each day's results, posted once the day locks at noon. The top is a live view of today. You win a day when every daily goal is done and every weekly goal can still make its number by the end of the week. A day you haven't finished doesn't count against you until it locks. Your strikes are on your tag in The Pack. A weekly goal that can't be finished costs one day, not the rest of the week.")),
     q("chat", "What's Trash Talk?", p("A group message board. Everyone in the group sees it. You can delete your own posts.")),
     q("home", "How do I put it on my home screen?",
       ...(kind !== "other" ? [p("On this phone:"), stepsList(browserKey(), ADD)]
