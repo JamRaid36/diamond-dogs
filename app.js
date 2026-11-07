@@ -844,7 +844,7 @@ function renderBoard(ch) {
   const live = L.editableDates(ch, now()).filter((d) => !L.isSkip(ch, d)).map((d) => L.buildResult(state.players, ch, d, now()));
   const limit = state.boardLimit || 3;
   const shown = finals.slice(0, limit);
-  const head = h("div", { class: "sec-head" }, h("h2", { id: "boardH" }, "Daily Board"), h("span", { class: "note" }, "Days won · locks at noon next day"));
+  const head = h("div", { class: "sec-head" }, h("h2", { id: "boardH" }, "Daily Board"), h("span", { class: "note" }, "Each day locks at noon the next day"));
   if (!live.length && !shown.length) {
     const msg = t < ch.start ? [h("b", {}, `Scores start ${fmtDay(ch.start, { weekday: "long" })}. `), "The board goes live the moment anyone ticks."]
       : [h("b", {}, "Nothing to show yet. "), "The board fills in as the pack ticks."];
