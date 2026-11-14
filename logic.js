@@ -38,8 +38,16 @@
     return isFinite(n) && Math.abs(n) <= 8.64e15 ? n : 0;
   }
 
+  // Remembered by instant (speed, 2026-11-14): one redraw asks for the same handful of instants (now, a challenge's
+  // creation) thousands of times, and the time-zone formatter is slow. Same instant, same answer. Capped.
+  var pacificDateMemo = new Map();
   function pacificDate(ms) {
-    return dateFmt.format(new Date(safeMs(ms)));
+    var t = safeMs(ms), hit = pacificDateMemo.get(t);
+    if (hit !== undefined) return hit;
+    var out = dateFmt.format(new Date(t));
+    if (pacificDateMemo.size >= 5000) pacificDateMemo.clear();
+    pacificDateMemo.set(t, out);
+    return out;
   }
 
   function pacificHour(ms) {
@@ -47,10 +55,22 @@
   }
 
   // Calendar arithmetic on YYYY-MM-DD strings, done in UTC so DST never shifts a day.
+  // Remembered (speed, 2026-11-14): the scoring loops ask the same few hundred (date, n) pairs hundreds of thousands of
+  // times per redraw, and this was 76% of a redraw's time on day 15. The answer for a pair never changes. A pair that
+  // throws (not a string, not a date) is never stored, so it throws again exactly as before. Capped so it can't grow.
+  var addDaysMemo = new Map();
   function addDays(date, n) {
+    var key = typeof date === "string" && typeof n === "number" ? date + "|" + n : null;
+    var hit = key === null ? undefined : addDaysMemo.get(key);
+    if (hit !== undefined) return hit;
     var p = date.split("-").map(Number);
     var d = new Date(Date.UTC(p[0], p[1] - 1, p[2] + n));
-    return d.toISOString().slice(0, 10);
+    var out = d.toISOString().slice(0, 10);
+    if (key !== null) {
+      if (addDaysMemo.size >= 20000) addDaysMemo.clear();
+      addDaysMemo.set(key, out);
+    }
+    return out;
   }
 
   function daysBetween(a, b) {
@@ -81,12 +101,30 @@
     };
   }
 
+  // ---------- per-call memory (speed, 2026-11-14) ----------
+  // Every exported function runs inside a "scope" (see the bottom of this file). While one call is running, nothing
+  // can change its inputs: the code is synchronous and never writes to them. So inside one call, the same question asked
+  // twice has the same answer, and goalList, activeGoals and weekProgress remember theirs. The memory is thrown away
+  // when the outermost call returns, so nothing can go stale between calls or between redraws. Callers get copies.
+  var scope = null;
+  function scoped(fn) {
+    return function () {
+      if (scope) return fn.apply(this, arguments);
+      scope = { gl: new WeakMap(), ag: new WeakMap(), wp: new WeakMap() };
+      try { return fn.apply(this, arguments); } finally { scope = null; }
+    };
+  }
+
   function goalList(ch) {
     var g = (ch && ch.goals) || {};
     if (typeof g !== "object") return [];
-    return Object.keys(g)
+    var memo = scope && g !== null ? scope.gl.get(g) : undefined;
+    if (memo) return memo.slice();
+    var out = Object.keys(g)
       .map(function (id) { return cleanGoal(id, g[id]); }).filter(Boolean)
       .sort(function (a, b) { return (a.order || 0) - (b.order || 0) || (a.addedOn < b.addedOn ? -1 : 1); });
+    if (scope && g !== null) scope.gl.set(g, out);
+    return scope ? out.slice() : out;
   }
 
   // One player's view of a challenge: the group goals plus their own. Every scoring function takes a challenge, so
@@ -206,9 +244,18 @@
   // and not a day off.
   function activeGoals(ch, date) {
     if (!inChallenge(ch, date) || isSkip(ch, date)) return [];
-    return goalList(ch).filter(function (g) {
+    var byDate = null;
+    if (scope && typeof ch === "object") {
+      byDate = scope.ag.get(ch);
+      if (!byDate) { byDate = new Map(); scope.ag.set(ch, byDate); }
+      var memo = byDate.get(date);
+      if (memo) return memo.slice();
+    }
+    var out = goalList(ch).filter(function (g) {
       return g.addedOn <= date && (!g.closedOn || date < g.closedOn);
     });
+    if (byDate) { byDate.set(date, out); return out.slice(); }
+    return out;
   }
 
   // Goals are locked once the challenge has started: text can't change, but goals can be added or closed.
@@ -269,6 +316,21 @@
 
   // Progress on one weekly goal in the week holding `date`, counting ticks up to `date`.
   function weekProgress(player, ch, goal, date) {
+    var keyMap = null, key = null;
+    if (scope && ch && typeof ch === "object" && goal && (player === null || player === undefined || typeof player === "object")) {
+      var perCh = scope.wp.get(ch);
+      if (!perCh) { perCh = { none: new Map(), players: new WeakMap() }; scope.wp.set(ch, perCh); }
+      if (player === null || player === undefined) keyMap = perCh.none;
+      else { keyMap = perCh.players.get(player); if (!keyMap) { keyMap = new Map(); perCh.players.set(player, keyMap); } }
+      key = String(player) + "|" + goal.id + "|" + goal.perWeek + "|" + date;
+      var memo = keyMap.get(key);
+      if (memo) return Object.assign({}, memo);
+    }
+    var out = weekProgressRaw(player, ch, goal, date);
+    if (keyMap) { keyMap.set(key, out); return Object.assign({}, out); }
+    return out;
+  }
+  function weekProgressRaw(player, ch, goal, date) {
     var start = weekStart(date, ch);
     var done = 0, counted = 0, off = 0;
     for (var d = start; d <= addDays(start, 6); d = addDays(d, 1)) {
@@ -1095,7 +1157,7 @@
     return daysBetween(ch.start, ch.end) + 1;
   }
 
-  return {
+  var api = {
     TZ: TZ, FINAL_HOUR: FINAL_HOUR, MAX_GOALS: MAX_GOALS, MAX_POST: MAX_POST, cleanPost: cleanPost,
     pacificDate: pacificDate, pacificHour: pacificHour, addDays: addDays, daysBetween: daysBetween, isDate: isDate,
     inChallenge: inChallenge, goalList: goalList, activeGoals: activeGoals, isLocked: isLocked, isDone: isDone,
@@ -1113,4 +1175,7 @@
     weekScore: weekScore, weekStreak: weekStreak, closeGoalPatch: closeGoalPatch, editGoalPatch: editGoalPatch, tickPatch: tickPatch,
     gridDates: gridDates, dayNumber: dayNumber, challengeLength: challengeLength
   };
+  // Every exported function runs in a scope (per-call memory, see goalList). Constants pass through untouched.
+  Object.keys(api).forEach(function (k) { if (typeof api[k] === "function") api[k] = scoped(api[k]); });
+  return api;
 });
