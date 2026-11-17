@@ -133,7 +133,7 @@ function renderInner() {
   ].filter(Boolean));
 }
 
-const DEV_SCENES = [["pack", "The real pack (copied from prod, Oct 31)"], ["packben", "The real pack, as Ben (weekly goals only: Rest day box)"], ["season1", "Season 1: you, the owner (send the invite)"], ["invited", "Season 1: a new player, from the invite"], ["active", "Mid-challenge (owner)"], ["goalcheck", "Before the start (owner)"], ["goalcheckm", "Before the start (player)"],
+const DEV_SCENES = [["pack", "The real pack (copied from prod, Oct 31)"], ["packben", "The real pack, as Ben (weekly goals only: Rest day box)"], ["packjay", "Your week (Nov 17): Calories needs today's tick"], ["season1", "Season 1: you, the owner (send the invite)"], ["invited", "Season 1: a new player, from the invite"], ["active", "Mid-challenge (owner)"], ["goalcheck", "Before the start (owner)"], ["goalcheckm", "Before the start (player)"],
   ["pardon", "Pardon vote"], ["pardonyes", "Pardon: time's up, pardoned (Riley's view)"], ["pardonno", "Pardon: time's up, tie, strike stands (Riley's view)"], ["treasurer", "Treasurer (owner view)"], ["treasurerm", "Treasurer (his view)"], ["over", "Finished, settle the pot"],
   ["member", "A player, not the owner"], ["empty", "Brand-new player"], ["signedout", "Signed out"]];
 function demoBanner() {
@@ -236,12 +236,16 @@ function renderNoChallenge() {
   renderFoot());
 }
 
-function ring(score) {
+// The ring says what's left today, not a points fraction (Jason 2026-11-17, Tg 8898: "that 1/2 symbol is confusing").
+// r: { off } | { won } | { left: n, fill: 0..1 } (left 0 and not won: today can't be a perfect day).
+function ring(r) {
   const C = 2 * Math.PI * 28;
-  const off = C * (1 - (score.of ? score.hit / score.of : 0));
-  const el = h("div", { class: "ring", role: "img", "aria-label": score.off ? "Day off" : `${score.hit} of ${score.of} done` });
+  const fill = r.off ? 0 : r.won ? 1 : r.fill;
+  const off = C * (1 - fill);
+  const label = r.off ? "Day off" : r.won ? "Day won" : r.left ? `${r.left} left to tick today` : "No perfect day today";
+  const el = h("div", { class: "ring" + (r.won ? " won" : ""), role: "img", "aria-label": label });
   el.innerHTML = `<svg viewBox="0 0 68 68" aria-hidden="true"><circle class="track" cx="34" cy="34" r="28" fill="none" stroke-width="7"/><circle class="fill" cx="34" cy="34" r="28" fill="none" stroke-width="7" stroke-linecap="round" stroke-dasharray="${C.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/></svg>`;
-  el.append(h("b", {}, score.off ? "Off" : `${score.hit}/${score.of}`));
+  el.append(r.off ? h("b", {}, "Off") : r.won ? h("b", {}, "✓") : r.left ? h("b", { class: "left" }, String(r.left), h("small", {}, "left")) : h("b", {}, "✕"));
   return el;
 }
 
@@ -275,16 +279,27 @@ function renderYou(ch) {
   const earned = L.dayWon(p, ch, date, now());
   const restLeft = restOk ? L.restDaysLeft(p, ch, date) : null; // null: no weekly goal limits it this week
   const showRest = restOk && (rested || (restLeft !== 0 && !weekly.some((g) => L.isDone(p, date, g.id))));
-  const ringScore = off ? { hit: 0, off: true, of: 0 } : restOk ? { hit: earned ? 1 : 0, of: 1 } : score.of ? score : { hit: wk.met, of: wk.of };
+  // An open day isn't missed until it locks: a weekly goal that needs today's tick is still to do, not off track (Tg 8898).
+  const final = L.isFinal(date, now(), ch);
+  const wt = final ? { needToday: [], lost: weekly.filter((g) => score.onTrack === false && !L.weekStillMakeable(p, ch, g, date)) } : L.weekToday(p, ch, date);
+  const names = (gs) => gs.map((g) => g.text).join(" and ");
+  const left = restOk ? (earned ? 0 : 1) : dailyLeft + wt.needToday.length;
+  const points = goals.length + (weekly.length ? 1 : 0);
+  const pointsDone = goals.length - dailyLeft + (weekly.length && !wt.needToday.length && !wt.lost.length ? 1 : 0);
+  const ringState = off ? { off: true } : !score.of ? { left: 0, fill: 0 } : earned ? { won: true } :
+    restOk ? { left: 1, fill: 0 } : { left: wt.lost.length ? 0 : left, fill: points ? pointsDone / points : 0 };
+  const parts = [];
+  if (dailyLeft) parts.push(`${dailyLeft} daily goal${dailyLeft === 1 ? "" : "s"} to tick`);
+  if (wt.needToday.length) parts.push(`${parts.length ? "tick" : "Tick"} ${names(wt.needToday)} today to stay on track`);
+  if (wt.lost.length) parts.push(`${names(wt.lost)} can't make ${wt.lost.length === 1 ? "its number" : "their numbers"} this week`);
   const sub = off ? "Day off for everyone" : !score.of ? "No goals today" :
     restOk && score.perfect && !earned ? (restLeft === 0 ? "No rest days left this week. Tick a weekly goal to win today" : "Tick a weekly goal or take a rest day to win today") :
     restOk && score.perfect && rested ? "Rest day. Day won, week on track." :
     score.perfect ? (!goals.length ? "On track for the week. Perfect day." : weekly.length ? "Perfect day. Daily goals done, week on track." : "Perfect day. Every daily goal done.") :
-    dailyLeft ? `${dailyLeft} daily goal${dailyLeft === 1 ? "" : "s"} to tick` + (score.onTrack === false ? " · week off track" : "") :
-    "Week off track: a weekly goal can't make its number";
+    parts.length ? parts.join(" · ") : "Week off track: a weekly goal can't make its number";
   const card = h("section", { class: "you", id: "you", "aria-labelledby": "youTitle" },
     h("div", { class: "perfect", "aria-hidden": "true" }),
-    h("div", { class: "you-head" }, ring(ringScore),
+    h("div", { class: "you-head" }, ring(ringState),
       h("div", { class: "you-title" }, h("p", { class: "eyebrow" }, ch.name), h("h1", { id: "youTitle" }, dayLabel(date)),
         h("p", {}, `${fmtDay(date)} · ${sub}`))),
     catchUp ? catchUpBanner(ch, p, openDays, t) : null,

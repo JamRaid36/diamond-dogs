@@ -17,7 +17,7 @@ function seed(scenario, now) {
   const start = d(-5);
   const store = { chat: {}, players: {}, challenges: {}, results: {}, members: { ownerEmail: "you@example.com", emails: ["you@example.com", "sam@example.com", "riley@example.com"] } };
   if (scenario === "empty") return store;
-  if (scenario === "pack" || scenario === "packben") return seedPack(store, now); // packben: the same pack, seen by Ben (weekly goals only)
+  if (scenario === "pack" || scenario === "packben" || scenario === "packjay") return seedPack(store, now, scenario); // packben: the same pack, seen by Ben (weekly goals only)
   const ch = {
     name: "Fall Cut", start: scenario === "upcoming" ? d(2) : start, end: scenario === "upcoming" ? d(23) : d(15),
     createdBy: "me", createdAt: now - 6 * 86400000, // created on its start day: no catch-up window in the demo
@@ -120,7 +120,7 @@ function seed(scenario, now) {
 // prod"): same names, goals, cadences, pot and start, and day 1's ticks as of Sat Oct 31, 9:15 PM. Dev is public; Jason
 // OK'd real names (Tg 7590). No emails, no Trash Talk. Days after Oct 31 start empty, like a fresh week.
 const PACK_NAMES = { me: "Jay", costa: "Costa", ben: "Ben", daniel: "Daniel Gilchrist", joseph: "Joseph" };
-function seedPack(store, now) {
+function seedPack(store, now, scenario) {
   const start = "2026-10-31";
   const g = (text, order, perWeek) => ({ text, addedOn: start, closedOn: null, order, perWeek: perWeek || null });
   const goals = {
@@ -138,6 +138,17 @@ function seedPack(store, now) {
   for (const uid of Object.keys(PACK_NAMES)) {
     const days = { [start]: Object.fromEntries(day1[uid].map((id) => [id, true])) };
     store.players[uid] = { name: PACK_NAMES[uid], joinedAt: Math.min(created, now), days };
+  }
+  // packjay (Jason 2026-11-17, Tg 8891/8898): Jay's week as his screenshot showed it. Every earlier day perfect; this
+  // week Calories only yesterday, so today it needs ticking to stay on track. Today: protein ticked, nothing else.
+  if (scenario === "packjay") {
+    const today = L.pacificDate(now), y = L.addDays(today, -1), ws = L.weekStart(today, store.challenges.c1);
+    const days = store.players.me.days;
+    for (let dd = start; dd < today; dd = L.addDays(dd, 1)) {
+      days[dd] = dd < ws ? { j1: true, j2: true, j3: true, j4: true }
+        : { j1: true, j2: dd === y, j3: dd === y, j4: dd >= L.addDays(today, -2) };
+    }
+    days[today] = { j1: true };
   }
   return store;
 }

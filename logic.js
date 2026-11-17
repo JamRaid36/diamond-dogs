@@ -439,6 +439,22 @@
     return Object.assign({ hit: hit, of: of, pct: of ? Math.round((hit / of) * 100) : 0, perfect: of > 0 && hit === of }, out);
   }
 
+  // The week as it stands while `date` is still open (Jason 2026-11-17, Tg 8898/8905: "I haven't missed any I needed",
+  // the ring read 1/2 at 10 AM). dayScore scores the day as if it ended now, so a weekly goal that needs today's tick
+  // reads "can't make its number" before the day is over. For display only: scoring keeps dayScore.
+  // needToday: weekly goals still makeable only if ticked today. lost: can't make it even with today's tick (and not
+  // already struck on an earlier day this week, which dayScore has stopped counting).
+  function weekToday(player, ch, date) {
+    var needToday = [], lost = [];
+    weeklyGoals(ch, date).forEach(function (g) {
+      if (lostEarlier(player, ch, g, date) || weekStillMakeable(player, ch, g, date)) return;
+      var pr = weekProgress(player, ch, g, date);
+      if (!isDone(player, date, g.id) && pr.done + 1 + daysLeftAfter(player, ch, g, date, pr.weekStart) >= pr.need) needToday.push(g);
+      else lost.push(g);
+    });
+    return { needToday: needToday, lost: lost };
+  }
+
   // Does this day count as won yet? A locked day: if it was perfect. An open day only once it's earned (Jason
   // 2026-11-01, Tg 7622: "how is it that anybody has 2/2? We've only just finished day 1"): every daily goal ticked,
   // or, for a weekly-only day, at least one goal ticked or the Rest day box (Tg 7642). Otherwise a weekly-only player wins each day at midnight.
@@ -1161,7 +1177,7 @@
     TZ: TZ, FINAL_HOUR: FINAL_HOUR, MAX_GOALS: MAX_GOALS, MAX_POST: MAX_POST, cleanPost: cleanPost,
     pacificDate: pacificDate, pacificHour: pacificHour, addDays: addDays, daysBetween: daysBetween, isDate: isDate,
     inChallenge: inChallenge, goalList: goalList, activeGoals: activeGoals, isLocked: isLocked, isDone: isDone,
-    dayScore: dayScore, daysWon: daysWon, dayWon: dayWon, liveScore: liveScore, REST: REST, restAllowed: restAllowed, isRest: isRest, restDaysLeft: restDaysLeft, dailyPerfect: dailyPerfect, weekStillMakeable: weekStillMakeable, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
+    dayScore: dayScore, daysWon: daysWon, dayWon: dayWon, liveScore: liveScore, REST: REST, restAllowed: restAllowed, isRest: isRest, restDaysLeft: restDaysLeft, dailyPerfect: dailyPerfect, weekStillMakeable: weekStillMakeable, weekToday: weekToday, goalStreak: goalStreak, perfectStreak: perfectStreak, isEditable: isEditable, isFinal: isFinal,
     strikesFor: strikesFor, potStatus: potStatus, potPatch: potPatch, paidPatch: paidPatch,
     groupScore: groupScore, snapshotOf: snapshotOf, snapshotParts: snapshotParts, assembleSnapshot: assembleSnapshot, backupComplete: backupComplete, backupPlan: backupPlan, BACKUP_KEEP: BACKUP_KEEP, endForWeeks: endForWeeks, weeksOf: weeksOf, chFor: chFor, ownView: ownView, ownPatch: ownPatch, ownGoals: ownGoals, MAX_PERSONAL: MAX_PERSONAL, ownGoalsWithout: ownGoalsWithout, canAddOwn: canAddOwn,
     minGoalsOn: minGoalsOn, goalSetKey: goalSetKey, signoffFor: signoffFor, signoffVotePatch: signoffVotePatch, ownerSignoffPatch: ownerSignoffPatch, minGoalsPatch: minGoalsPatch,

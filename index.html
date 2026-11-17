@@ -98,6 +98,8 @@ main { padding-block: 18px 48px; display: grid; grid-template-columns: minmax(0,
 .ring .track { stroke: var(--line); }
 .ring .fill { stroke: var(--hit); transition: stroke-dashoffset 500ms var(--ease); }
 .ring b { position: absolute; inset: 0; display: grid; place-items: center; font: 800 22px/1 var(--display); font-variant-numeric: tabular-nums; }
+.ring b.left { align-content: center; gap: 2px; }
+.ring b.left small { font: 700 10px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
 .you-title { min-width: 0; }
 .eyebrow { font: 500 11px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--blaze); margin: 0 0 6px; overflow-wrap: anywhere; }
 .you-title h1 { font: 900 34px/0.95 var(--display); text-transform: uppercase; letter-spacing: 0.01em; margin: 0; text-wrap: balance; }
